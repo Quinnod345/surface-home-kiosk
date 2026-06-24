@@ -62,6 +62,9 @@ internal static class CameraProbe
                 candidate => candidate.Info.SourceKind == desiredKind);
             if (source is not null)
             {
+                Console.Error.WriteLine(
+                    $"[bridge] selected {desiredKind} source in group '{group.DisplayName}' " +
+                    $"(sourceId={source.Info.Id}, format={Format(source.CurrentFormat)})");
                 return (capture, source);
             }
 
