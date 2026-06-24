@@ -18,7 +18,15 @@ $TaskName = "Surface Home Kiosk"
 function Refresh-Path {
   $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
   $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
-  $env:Path = "$machinePath;$userPath"
+  $commonPaths = @(
+    "$env:ProgramFiles\nodejs",
+    "${env:ProgramFiles(x86)}\nodejs",
+    "$env:LOCALAPPDATA\Programs\nodejs",
+    "$env:ProgramFiles\dotnet",
+    "${env:ProgramFiles(x86)}\dotnet"
+  ) | Where-Object { $_ -and (Test-Path $_) }
+
+  $env:Path = (@($machinePath, $userPath) + $commonPaths) -join ";"
 }
 
 function Ensure-Winget {
@@ -40,6 +48,13 @@ function Ensure-Command($Name, $WingetId, $InstallHint) {
   Write-Host "$Name is missing. Installing $WingetId with winget..."
   winget install --id $WingetId --exact --accept-source-agreements --accept-package-agreements
   Refresh-Path
+
+  if ($Name -eq "npm" -and -not (Get-Command npm -ErrorAction SilentlyContinue)) {
+    $npmCmd = Get-ChildItem -Path "$env:ProgramFiles\nodejs" -Filter "npm.cmd" -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($npmCmd) {
+      $env:Path = "$($npmCmd.DirectoryName);$env:Path"
+    }
+  }
 
   if (-not (Get-Command $Name -ErrorAction SilentlyContinue)) {
     throw "$Name still was not found after installing $WingetId. Open a new PowerShell window and rerun this script."

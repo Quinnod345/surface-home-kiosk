@@ -119,7 +119,10 @@ Enable-CodexSsh
 if (-not $SkipInstall) {
   $installScript = Join-Path $InstallDirectory "scripts\Install-SurfaceHomeKiosk.ps1"
   if (Test-Path $installScript) {
-    powershell -ExecutionPolicy Bypass -File $installScript -SkipPrerequisiteInstall
+    powershell -ExecutionPolicy Bypass -File $installScript
+    if ($LASTEXITCODE -ne 0) {
+      throw "Install script failed with exit code $LASTEXITCODE."
+    }
   }
 }
 
