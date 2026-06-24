@@ -71,11 +71,15 @@ export function useFaceRecognition(
             (descriptor) => new Float32Array(descriptor),
           );
           for (const url of person.referenceImageUrls ?? []) {
-            const detection = await imageDescriptor(
-              faceapi,
-              resolveKioskAssetUrl(url),
-            );
-            if (detection?.descriptor) descriptors.push(detection.descriptor);
+            try {
+              const detection = await imageDescriptor(
+                faceapi,
+                resolveKioskAssetUrl(url),
+              );
+              if (detection?.descriptor) descriptors.push(detection.descriptor);
+            } catch (error) {
+              console.warn(`Skipping reference face image for ${person.id}: ${url}`, error);
+            }
           }
 
           if (descriptors.length > 0) {
