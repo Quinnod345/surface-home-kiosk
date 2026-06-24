@@ -313,10 +313,7 @@ function relaxHomeAssistantFrameHeaders() {
     { urls: ["http://*/*", "https://*/*"] },
     (details, callback) => {
       const headers = details.responseHeaders;
-      if (
-        !headers ||
-        !["mainFrame", "subFrame"].includes(details.resourceType)
-      ) {
+      if (!headers) {
         callback({ responseHeaders: headers });
         return;
       }
