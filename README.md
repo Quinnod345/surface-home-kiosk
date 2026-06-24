@@ -68,7 +68,7 @@ user-data config path shown in the setup strip on first launch.
 Important fields:
 
 - `homeAssistant.baseUrl`: your Home Assistant origin, for example
-  `http://homeassistant.local:8123`.
+  `https://homeassistant.local`.
 - `homeAssistant.dashboardUrl`: the Lovelace dashboard to show in the kiosk.
 - `homeAssistant.accessToken`: a long-lived token from a constrained Home
   Assistant user.

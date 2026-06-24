@@ -6,6 +6,17 @@ export type FaceApi = typeof import("@vladmandic/face-api");
 let loadingPromise: Promise<FaceApi> | null = null;
 let loadedModelUrl: string | null = null;
 
+function faceApiModelUrl(resolvedModelUrl: string) {
+  if (
+    window.location.protocol === "kiosk:" &&
+    resolvedModelUrl.startsWith(`${window.location.origin}/`)
+  ) {
+    return new URL(resolvedModelUrl).pathname.replace(/^\/+/, "");
+  }
+
+  return resolvedModelUrl;
+}
+
 export type FaceQualityCheck = {
   label: string;
   ok: boolean;
@@ -48,18 +59,19 @@ export async function checkFaceModelFiles(modelUrl: string) {
 
 export async function loadFaceApi(modelUrl: string): Promise<FaceApi> {
   const { modelUrl: resolvedModelUrl } = await checkFaceModelFiles(modelUrl);
-  if (loadingPromise && loadedModelUrl === resolvedModelUrl) return loadingPromise;
+  const loaderModelUrl = faceApiModelUrl(resolvedModelUrl);
+  if (loadingPromise && loadedModelUrl === loaderModelUrl) return loadingPromise;
 
-  loadedModelUrl = resolvedModelUrl;
+  loadedModelUrl = loaderModelUrl;
   loadingPromise = import("@vladmandic/face-api").then(async (faceapi) => {
     await Promise.all([
-      faceapi.nets.tinyFaceDetector.loadFromUri(resolvedModelUrl),
-      faceapi.nets.faceLandmark68Net.loadFromUri(resolvedModelUrl),
-      faceapi.nets.faceRecognitionNet.loadFromUri(resolvedModelUrl),
+      faceapi.nets.tinyFaceDetector.loadFromUri(loaderModelUrl),
+      faceapi.nets.faceLandmark68Net.loadFromUri(loaderModelUrl),
+      faceapi.nets.faceRecognitionNet.loadFromUri(loaderModelUrl),
     ]);
     return faceapi;
   }).catch((error) => {
-    if (loadedModelUrl === resolvedModelUrl) {
+    if (loadedModelUrl === loaderModelUrl) {
       loadingPromise = null;
       loadedModelUrl = null;
     }

@@ -15,7 +15,7 @@ function normalizeHttpUrl(value: string) {
   const trimmed = value.trim().replace(/\/$/, "");
   if (!trimmed) return "";
   if (/^https?:\/\//i.test(trimmed)) return trimmed;
-  return `http://${trimmed}`;
+  return `https://${trimmed}`;
 }
 
 function normalizeDashboardUrl(value: string, baseUrl: string) {
@@ -155,7 +155,7 @@ export function SetupPanel({ config, onClose, onSaved }: SetupPanelProps) {
           <span>Home Assistant URL</span>
           <input
             value={baseUrl}
-            placeholder="http://homeassistant.local:8123"
+            placeholder="https://homeassistant.local"
             onChange={(event) => setBaseUrl(event.target.value)}
           />
         </label>
@@ -164,7 +164,7 @@ export function SetupPanel({ config, onClose, onSaved }: SetupPanelProps) {
           <span>Dashboard URL</span>
           <input
             value={dashboardUrl}
-            placeholder="http://homeassistant.local:8123/lovelace/default_view?kiosk"
+            placeholder="https://homeassistant.local/lovelace/default_view?kiosk"
             onChange={(event) => setDashboardUrl(event.target.value)}
           />
         </label>

@@ -64,8 +64,8 @@ export const defaultConfig: KioskConfig = {
   deviceName: "surface-pro-3-kiosk",
   debug: false,
   homeAssistant: {
-    baseUrl: "http://homeassistant.local:8123",
-    dashboardUrl: "http://homeassistant.local:8123/lovelace/default_view?kiosk",
+    baseUrl: "https://homeassistant.local",
+    dashboardUrl: "https://homeassistant.local/lovelace/default_view?kiosk",
     eventPrefix: "surface_kiosk",
   },
   slideshow: {

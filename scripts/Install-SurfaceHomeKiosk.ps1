@@ -2,8 +2,8 @@ param(
   [switch]$SkipAutostart,
   [switch]$SkipModels,
   [switch]$SkipPrerequisiteInstall,
-  [string]$HomeAssistantUrl = "http://homeassistant.local:8123",
-  [string]$DashboardUrl = "http://homeassistant.local:8123/lovelace/default_view?kiosk"
+  [string]$HomeAssistantUrl = "https://homeassistant.local",
+  [string]$DashboardUrl = "https://homeassistant.local/lovelace/default_view?kiosk"
 )
 
 Set-StrictMode -Version Latest

@@ -1,8 +1,8 @@
 param(
   [string]$RepoZipUrl = "https://github.com/Quinnod345/surface-home-kiosk/archive/refs/heads/main.zip",
   [string]$InstallDirectory = "$env:USERPROFILE\SurfaceHomeKiosk",
-  [string]$HomeAssistantUrl = "http://homeassistant.local:8123",
-  [string]$DashboardUrl = "http://homeassistant.local:8123/lovelace/default_view?kiosk",
+  [string]$HomeAssistantUrl = "https://homeassistant.local",
+  [string]$DashboardUrl = "https://homeassistant.local/lovelace/default_view?kiosk",
   [switch]$SkipAutostart,
   [switch]$SkipModels,
   [switch]$SkipPrerequisiteInstall

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, net, protocol } from "electron";
+import { app, BrowserWindow, ipcMain, net, protocol, session } from "electron";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -262,7 +262,7 @@ function normalizeHomeAssistantUrl(value?: string) {
   const trimmed = value?.trim().replace(/\/$/, "");
   if (!trimmed) return undefined;
   if (/^https?:\/\//i.test(trimmed)) return trimmed;
-  return `http://${trimmed}`;
+  return `https://${trimmed}`;
 }
 
 function homeAssistantFetchError(baseUrl: string, error: unknown) {
@@ -271,6 +271,84 @@ function homeAssistantFetchError(baseUrl: string, error: unknown) {
     `Could not reach Home Assistant at ${baseUrl}. ` +
       `Use the Home Assistant IP address if homeassistant.local does not resolve on Windows. ` +
       `Details: ${message}`,
+  );
+}
+
+function configuredHomeAssistantOrigins(config: KioskConfig = loadedConfig) {
+  const homeAssistant = config.homeAssistant ?? {};
+  const origins = new Set<string>();
+  const baseUrl = normalizeHomeAssistantUrl(homeAssistant.baseUrl);
+
+  for (const value of [baseUrl, homeAssistant.dashboardUrl]) {
+    if (!value) continue;
+
+    try {
+      origins.add(new URL(value, baseUrl).origin);
+    } catch {
+      // Invalid setup values are reported through the setup/test UI.
+    }
+  }
+
+  return origins;
+}
+
+function deleteHeader(headers: Record<string, string[]> | undefined, headerName: string) {
+  if (!headers) return;
+  const match = Object.keys(headers).find(
+    (candidate) => candidate.toLowerCase() === headerName.toLowerCase(),
+  );
+  if (match) delete headers[match];
+}
+
+function removeFrameAncestors(policy: string) {
+  return policy
+    .split(";")
+    .map((directive) => directive.trim())
+    .filter((directive) => directive && !/^frame-ancestors(?:\s|$)/i.test(directive))
+    .join("; ");
+}
+
+function relaxHomeAssistantFrameHeaders() {
+  session.defaultSession.webRequest.onHeadersReceived(
+    { urls: ["http://*/*", "https://*/*"] },
+    (details, callback) => {
+      const headers = details.responseHeaders;
+      if (!headers || details.resourceType !== "subFrame") {
+        callback({ responseHeaders: headers });
+        return;
+      }
+
+      let requestOrigin: string;
+      try {
+        requestOrigin = new URL(details.url).origin;
+      } catch {
+        callback({ responseHeaders: headers });
+        return;
+      }
+
+      if (!configuredHomeAssistantOrigins().has(requestOrigin)) {
+        callback({ responseHeaders: headers });
+        return;
+      }
+
+      const nextHeaders: Record<string, string[]> = { ...headers };
+      deleteHeader(nextHeaders, "x-frame-options");
+
+      for (const key of Object.keys(nextHeaders)) {
+        if (key.toLowerCase() !== "content-security-policy") continue;
+        const policies = nextHeaders[key]
+          .map(removeFrameAncestors)
+          .filter((policy) => policy.length > 0);
+
+        if (policies.length > 0) {
+          nextHeaders[key] = policies;
+        } else {
+          delete nextHeaders[key];
+        }
+      }
+
+      callback({ responseHeaders: nextHeaders });
+    },
   );
 }
 
@@ -322,8 +400,11 @@ async function postHomeAssistant(pathname: string, payload: unknown) {
 function distAssetPath(requestUrl: string) {
   const distRoot = path.join(appRoot(), "dist");
   const url = new URL(requestUrl);
-  const requestPath =
+  let requestPath =
     url.pathname === "/" ? "index.html" : decodeURIComponent(url.pathname).replace(/^\/+/, "");
+  if (requestPath.startsWith("app/")) {
+    requestPath = requestPath.slice("app/".length);
+  }
   const filePath = path.normalize(path.join(distRoot, requestPath));
   const relativePath = path.relative(distRoot, filePath);
 
@@ -378,6 +459,7 @@ function createWindow() {
 
 app.whenReady().then(() => {
   registerKioskProtocol();
+  relaxHomeAssistantFrameHeaders();
 
   ipcMain.handle("config:read", readConfig);
   ipcMain.handle("config:write", writeConfig);

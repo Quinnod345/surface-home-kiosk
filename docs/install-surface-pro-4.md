@@ -40,7 +40,7 @@ irm https://raw.githubusercontent.com/Quinnod345/surface-home-kiosk/main/scripts
 To provide your Home Assistant URLs during bootstrap:
 
 ```powershell
-iex "& { $(irm https://raw.githubusercontent.com/Quinnod345/surface-home-kiosk/main/scripts/Bootstrap-SurfaceHomeKiosk.ps1) } -HomeAssistantUrl 'http://homeassistant.local:8123' -DashboardUrl 'http://homeassistant.local:8123/lovelace/default_view?kiosk'"
+iex "& { $(irm https://raw.githubusercontent.com/Quinnod345/surface-home-kiosk/main/scripts/Bootstrap-SurfaceHomeKiosk.ps1) } -HomeAssistantUrl 'https://homeassistant.local' -DashboardUrl 'https://homeassistant.local/lovelace/default_view?kiosk'"
 ```
 
 Manual local install:
@@ -55,8 +55,8 @@ With a real Home Assistant URL:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\Install-SurfaceHomeKiosk.ps1 `
-  -HomeAssistantUrl "http://homeassistant.local:8123" `
-  -DashboardUrl "http://homeassistant.local:8123/lovelace/default_view?kiosk"
+  -HomeAssistantUrl "https://homeassistant.local" `
+  -DashboardUrl "https://homeassistant.local/lovelace/default_view?kiosk"
 ```
 
 The installer:
@@ -110,8 +110,8 @@ Edit `public\kiosk-config.json`:
 ```json
 {
   "homeAssistant": {
-    "baseUrl": "http://homeassistant.local:8123",
-    "dashboardUrl": "http://homeassistant.local:8123/lovelace/default_view?kiosk",
+    "baseUrl": "https://homeassistant.local",
+    "dashboardUrl": "https://homeassistant.local/lovelace/default_view?kiosk",
     "accessToken": "YOUR_LONG_LIVED_TOKEN",
     "eventPrefix": "surface_kiosk",
     "activePersonEntityId": "input_text.surface_kiosk_active_person"

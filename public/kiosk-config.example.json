@@ -2,8 +2,8 @@
   "deviceName": "surface-pro-3-kiosk",
   "debug": false,
   "homeAssistant": {
-    "baseUrl": "http://homeassistant.local:8123",
-    "dashboardUrl": "http://homeassistant.local:8123/lovelace/default_view?kiosk",
+    "baseUrl": "https://homeassistant.local",
+    "dashboardUrl": "https://homeassistant.local/lovelace/default_view?kiosk",
     "accessToken": "",
     "eventPrefix": "surface_kiosk",
     "activePersonEntityId": "input_text.surface_kiosk_active_person"
@@ -43,14 +43,5 @@
     "openDashboardOnCloseFace": true,
     "openDashboardOnTap": true
   },
-  "people": [
-    {
-      "id": "quinn",
-      "displayName": "Quinn",
-      "dashboardPath": "/lovelace/quinn?kiosk",
-      "greeting": "Welcome, Quinn.",
-      "referenceImageUrls": ["/people/quinn-01.jpg", "/people/quinn-02.jpg"],
-      "faceDescriptors": []
-    }
-  ]
+  "people": []
 }
