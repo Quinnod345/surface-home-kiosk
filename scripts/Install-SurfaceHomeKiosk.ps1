@@ -87,6 +87,8 @@ function Install-Dependencies {
       npm install
     }
 
+    npm run build
+
     if (-not $SkipModels) {
       npm run download:face-models
     }
@@ -133,7 +135,7 @@ Ensure-Command "dotnet" "Microsoft.DotNet.SDK.8" "Install the .NET 8 SDK from ht
 Write-Host "Updating kiosk config..."
 Update-Config
 
-Write-Host "Installing npm dependencies and face models..."
+Write-Host "Installing npm dependencies, building app, and downloading face models..."
 Install-Dependencies
 
 Write-Host "Publishing Surface camera bridge..."
