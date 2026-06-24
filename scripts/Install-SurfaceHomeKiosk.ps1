@@ -1,6 +1,7 @@
 param(
   [switch]$SkipAutostart,
   [switch]$SkipModels,
+  [switch]$SkipPrerequisiteInstall,
   [string]$HomeAssistantUrl = "http://homeassistant.local:8123",
   [string]$DashboardUrl = "http://homeassistant.local:8123/lovelace/default_view?kiosk"
 )
@@ -14,9 +15,34 @@ $ExampleConfigPath = Join-Path $Root "public\kiosk-config.example.json"
 $StartScript = Join-Path $Root "scripts\Start-SurfaceHomeKiosk.ps1"
 $TaskName = "Surface Home Kiosk"
 
-function Assert-Command($Name, $InstallHint) {
-  if (-not (Get-Command $Name -ErrorAction SilentlyContinue)) {
+function Refresh-Path {
+  $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
+  $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+  $env:Path = "$machinePath;$userPath"
+}
+
+function Ensure-Winget {
+  if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
+    throw "winget is not available. Install 'App Installer' from Microsoft Store, then rerun this script."
+  }
+}
+
+function Ensure-Command($Name, $WingetId, $InstallHint) {
+  if (Get-Command $Name -ErrorAction SilentlyContinue) {
+    return
+  }
+
+  if ($SkipPrerequisiteInstall) {
     throw "$Name is not installed. $InstallHint"
+  }
+
+  Ensure-Winget
+  Write-Host "$Name is missing. Installing $WingetId with winget..."
+  winget install --id $WingetId --exact --accept-source-agreements --accept-package-agreements
+  Refresh-Path
+
+  if (-not (Get-Command $Name -ErrorAction SilentlyContinue)) {
+    throw "$Name still was not found after installing $WingetId. Open a new PowerShell window and rerun this script."
   }
 }
 
@@ -80,9 +106,9 @@ function Install-Autostart {
     -Force | Out-Null
 }
 
-Assert-Command "node" "Install Node.js LTS from https://nodejs.org/ or winget install OpenJS.NodeJS.LTS"
-Assert-Command "npm" "Install Node.js LTS from https://nodejs.org/ or winget install OpenJS.NodeJS.LTS"
-Assert-Command "dotnet" "Install the .NET 8 SDK from https://dotnet.microsoft.com/download"
+Ensure-Command "node" "OpenJS.NodeJS.LTS" "Install Node.js LTS from https://nodejs.org/ or winget install OpenJS.NodeJS.LTS"
+Ensure-Command "npm" "OpenJS.NodeJS.LTS" "Install Node.js LTS from https://nodejs.org/ or winget install OpenJS.NodeJS.LTS"
+Ensure-Command "dotnet" "Microsoft.DotNet.SDK.8" "Install the .NET 8 SDK from https://dotnet.microsoft.com/download"
 
 Write-Host "Updating kiosk config..."
 Update-Config

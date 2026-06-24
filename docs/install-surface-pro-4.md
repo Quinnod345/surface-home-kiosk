@@ -7,7 +7,8 @@ exposes it through `MediaFrameReader`.
 
 ## 1. Prepare Windows
 
-Install:
+The bootstrap installer can install Node.js LTS and .NET 8 SDK through `winget`.
+If you want to install them yourself first, install:
 
 - Windows 10/11 with all Surface firmware and camera updates
 - Node.js LTS

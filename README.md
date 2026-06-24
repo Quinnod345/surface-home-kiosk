@@ -49,9 +49,10 @@ powershell -ExecutionPolicy Bypass -File scripts\Probe-SurfaceCamera.ps1
 powershell -ExecutionPolicy Bypass -File scripts\Start-SurfaceHomeKiosk.ps1
 ```
 
-The installer checks for Node.js and .NET, installs npm dependencies, downloads
-face models, publishes the camera bridge, enables the native IR bridge in
-`public/kiosk-config.json`, and registers a sign-in scheduled task.
+The installer installs Node.js LTS and .NET 8 SDK through `winget` when missing,
+installs npm dependencies, downloads face models, publishes the camera bridge,
+enables the native IR bridge in `public/kiosk-config.json`, and registers a
+sign-in scheduled task.
 
 ## Configure
 

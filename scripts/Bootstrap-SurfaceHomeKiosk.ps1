@@ -4,7 +4,8 @@ param(
   [string]$HomeAssistantUrl = "http://homeassistant.local:8123",
   [string]$DashboardUrl = "http://homeassistant.local:8123/lovelace/default_view?kiosk",
   [switch]$SkipAutostart,
-  [switch]$SkipModels
+  [switch]$SkipModels,
+  [switch]$SkipPrerequisiteInstall
 )
 
 Set-StrictMode -Version Latest
@@ -54,6 +55,10 @@ try {
 
     if ($SkipModels) {
       $installArgs += "-SkipModels"
+    }
+
+    if ($SkipPrerequisiteInstall) {
+      $installArgs += "-SkipPrerequisiteInstall"
     }
 
     powershell @installArgs
