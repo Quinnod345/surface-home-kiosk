@@ -22,7 +22,7 @@ import {
 } from "./config";
 import { resolveKioskAssetUrl } from "./assetUrl";
 import { EnrollmentPanel } from "./EnrollmentPanel";
-import { loadFaceApi } from "./faceApiRuntime";
+import { checkFaceModelFiles, loadFaceApi } from "./faceApiRuntime";
 import { SetupPanel } from "./SetupPanel";
 import {
   loadEnrollments,
@@ -228,10 +228,23 @@ export default function App() {
   ]);
 
   useEffect(() => {
+    let cancelled = false;
+
     loadKioskConfig()
-      .then((loaded) => setConfig(loaded))
-      .finally(() => setConfigLoaded(true));
-    setEnrolledPeople(loadEnrollments().people);
+      .then((loaded) => {
+        if (!cancelled) setConfig(loaded);
+      })
+      .finally(() => {
+        if (!cancelled) setConfigLoaded(true);
+      });
+
+    loadEnrollments().then((store) => {
+      if (!cancelled) setEnrolledPeople(store.people);
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -359,6 +372,18 @@ export default function App() {
     setModelTestStatus("testing");
     setModelTestMessage(null);
     try {
+      if (window.surfaceKiosk?.checkModels) {
+        const modelFiles = await window.surfaceKiosk.checkModels();
+        if (!modelFiles.ok) {
+          const missing = modelFiles.files
+            .filter((file) => !file.exists || file.size <= 0)
+            .map((file) => file.name)
+            .join(", ");
+          throw new Error(`Missing model files in ${modelFiles.modelsDir}: ${missing}`);
+        }
+      }
+
+      await checkFaceModelFiles(effectiveConfig.faceRecognition.modelUrl);
       await loadFaceApi(effectiveConfig.faceRecognition.modelUrl);
       setModelTestStatus("ok");
       setModelTestMessage("Models loaded.");
@@ -597,7 +622,6 @@ export default function App() {
           onClose={() => setShowSetup(false)}
           onSaved={(saved) => {
             setConfig(saved);
-            setShowSetup(false);
           }}
         />
       ) : null}

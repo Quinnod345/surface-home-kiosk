@@ -69,9 +69,9 @@ export function EnrollmentPanel({
   const [dashboardPath, setDashboardPath] = useState("");
   const [samples, setSamples] = useState<CaptureSample[]>([]);
   const [quality, setQuality] = useState<FaceQuality | null>(null);
-  const [status, setStatus] = useState<"idle" | "loading" | "capturing" | "saved">(
-    "loading",
-  );
+  const [status, setStatus] = useState<
+    "idle" | "loading" | "capturing" | "saving" | "saved"
+  >("loading");
   const [error, setError] = useState<string | null>(null);
 
   const resolvedId = useMemo(
@@ -88,7 +88,12 @@ export function EnrollmentPanel({
       quality?.canCapture &&
       status !== "capturing",
   );
-  const canSave = Boolean(resolvedId && displayName.trim() && samples.length >= 3);
+  const canSave = Boolean(
+    resolvedId &&
+      displayName.trim() &&
+      samples.length >= 3 &&
+      status !== "saving",
+  );
 
   useEffect(() => {
     const preview = previewVideoRef.current;
@@ -196,20 +201,28 @@ export function EnrollmentPanel({
     }
   }
 
-  function save() {
+  async function save() {
     if (!canSave) return;
 
     const now = new Date().toISOString();
-    const next = saveEnrolledPerson({
-      id: resolvedId,
-      displayName: displayName.trim(),
-      dashboardPath: dashboardPath.trim() || undefined,
-      faceDescriptors: samples.map((sample) => sample.descriptor),
-      enrolledAt: now,
-      updatedAt: now,
-    });
-    setStatus("saved");
-    onSaved(next.people);
+    setStatus("saving");
+    setError(null);
+
+    try {
+      const next = await saveEnrolledPerson({
+        id: resolvedId,
+        displayName: displayName.trim(),
+        dashboardPath: dashboardPath.trim() || undefined,
+        faceDescriptors: samples.map((sample) => sample.descriptor),
+        enrolledAt: now,
+        updatedAt: now,
+      });
+      setStatus("saved");
+      onSaved(next.people);
+    } catch (saveError) {
+      setStatus("idle");
+      setError(saveError instanceof Error ? saveError.message : "Could not save person.");
+    }
   }
 
   const boxStyle = useMemo<CSSProperties | undefined>(() => {
@@ -356,8 +369,20 @@ export function EnrollmentPanel({
           disabled={!canSave}
           onClick={save}
         >
-          {status === "saved" ? <Check size={18} /> : <UserPlus size={18} />}
-          <span>{status === "saved" ? "Saved" : "Save person"}</span>
+          {status === "saved" ? (
+            <Check size={18} />
+          ) : status === "saving" ? (
+            <Loader2 size={18} />
+          ) : (
+            <UserPlus size={18} />
+          )}
+          <span>
+            {status === "saved"
+              ? "Saved"
+              : status === "saving"
+                ? "Saving"
+                : "Save person"}
+          </span>
         </button>
       </div>
     </aside>

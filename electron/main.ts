@@ -15,11 +15,27 @@ type KioskConfig = {
   [key: string]: unknown;
 };
 
+type EnrollmentStore = {
+  version: 1;
+  people: unknown[];
+};
+
+type KioskStateDb = {
+  version: 1;
+  updatedAt: string;
+  config?: KioskConfig;
+  enrollments?: EnrollmentStore;
+};
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 let mainWindow: BrowserWindow | null = null;
 let loadedConfig: KioskConfig = {};
+
+app.setName("Surface Home Kiosk");
+app.setPath("userData", path.join(app.getPath("appData"), "SurfaceHomeKiosk"));
+app.commandLine.appendSwitch("remote-debugging-port", "9222");
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -45,10 +61,23 @@ function userConfigPath() {
   return path.join(app.getPath("userData"), "kiosk-config.json");
 }
 
+function stateDbPath() {
+  return path.join(app.getPath("userData"), "kiosk-state.json");
+}
+
+function legacyUserConfigCandidates() {
+  const appData = app.getPath("appData");
+  return [
+    userConfigPath(),
+    path.join(appData, "surface-home-kiosk", "kiosk-config.json"),
+    path.join(appData, "Electron", "kiosk-config.json"),
+  ];
+}
+
 function configCandidates() {
   const root = appRoot();
   return [
-    userConfigPath(),
+    ...legacyUserConfigCandidates(),
     path.join(root, "public", "kiosk-config.local.json"),
     path.join(root, "public", "kiosk-config.json"),
     path.join(root, "dist", "kiosk-config.json"),
@@ -68,51 +97,142 @@ async function readJsonIfPresent(filePath: string) {
   }
 }
 
-async function readConfig() {
-  for (const candidate of configCandidates()) {
-    const config = await readJsonIfPresent(candidate);
-    if (config) {
-      loadedConfig = config;
-      return {
-        ...config,
-        runtime: {
-          ...(typeof config.runtime === "object" ? config.runtime : {}),
-          configPath: candidate,
-          userConfigPath: userConfigPath(),
-        },
-      };
-    }
+async function readStateDb() {
+  try {
+    const text = await fs.readFile(stateDbPath(), "utf8");
+    const parsed = JSON.parse(text) as Partial<KioskStateDb>;
+    if (parsed.version !== 1) return undefined;
+    return parsed as KioskStateDb;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") return undefined;
+    console.warn(`Could not read local kiosk state at ${stateDbPath()}:`, error);
+    return undefined;
   }
+}
 
-  loadedConfig = {};
+async function writeStateDb(patch: Partial<KioskStateDb>) {
+  const current = await readStateDb();
+  const next: KioskStateDb = {
+    version: 1,
+    ...current,
+    ...patch,
+    updatedAt: new Date().toISOString(),
+  };
+
+  await fs.mkdir(path.dirname(stateDbPath()), { recursive: true });
+  await fs.writeFile(stateDbPath(), JSON.stringify(next, null, 2), "utf8");
+  return next;
+}
+
+function withoutRuntime(config: KioskConfig) {
+  const { runtime: _runtime, ...rest } = config;
+  return rest;
+}
+
+function withRuntime(config: KioskConfig, configPath: string | null) {
   return {
+    ...config,
     runtime: {
-      configPath: null,
+      ...(typeof config.runtime === "object" ? config.runtime : {}),
+      configPath,
+      statePath: stateDbPath(),
       userConfigPath: userConfigPath(),
     },
   };
 }
 
+async function readConfig() {
+  const state = await readStateDb();
+  if (state?.config) {
+    loadedConfig = state.config;
+    return withRuntime(state.config, stateDbPath());
+  }
+
+  for (const candidate of configCandidates()) {
+    const config = await readJsonIfPresent(candidate);
+    if (config) {
+      loadedConfig = config;
+      return withRuntime(config, candidate);
+    }
+  }
+
+  loadedConfig = {};
+  return withRuntime({}, null);
+}
+
 async function writeConfig(_event: unknown, config: KioskConfig) {
-  const nextConfig = {
-    ...config,
-    runtime: undefined,
-  };
+  const nextConfig = withoutRuntime(config);
   await fs.mkdir(path.dirname(userConfigPath()), { recursive: true });
   await fs.writeFile(userConfigPath(), JSON.stringify(nextConfig, null, 2), "utf8");
+  await writeStateDb({ config: nextConfig });
   loadedConfig = nextConfig;
+  return withRuntime(nextConfig, stateDbPath());
+}
+
+function emptyEnrollmentStore(): EnrollmentStore {
+  return { version: 1, people: [] };
+}
+
+function normalizeEnrollmentStore(store: unknown): EnrollmentStore {
+  if (
+    typeof store === "object" &&
+    store !== null &&
+    (store as Partial<EnrollmentStore>).version === 1 &&
+    Array.isArray((store as Partial<EnrollmentStore>).people)
+  ) {
+    return {
+      version: 1,
+      people: (store as Partial<EnrollmentStore>).people ?? [],
+    };
+  }
+
+  return emptyEnrollmentStore();
+}
+
+async function readEnrollments() {
+  const state = await readStateDb();
+  return normalizeEnrollmentStore(state?.enrollments);
+}
+
+async function writeEnrollments(_event: unknown, store: EnrollmentStore) {
+  const nextStore = normalizeEnrollmentStore(store);
+  await writeStateDb({ enrollments: nextStore });
+  return nextStore;
+}
+
+async function checkModels() {
+  const modelsDir = path.join(appRoot(), "dist", "models");
+  const required = [
+    "tiny_face_detector_model-weights_manifest.json",
+    "tiny_face_detector_model-shard1",
+    "face_landmark_68_model-weights_manifest.json",
+    "face_landmark_68_model-shard1",
+    "face_recognition_model-weights_manifest.json",
+    "face_recognition_model-shard1",
+  ];
+  const files = await Promise.all(
+    required.map(async (name) => {
+      const filePath = path.join(modelsDir, name);
+      try {
+        const stats = await fs.stat(filePath);
+        return { name, exists: true, size: stats.size };
+      } catch {
+        return { name, exists: false, size: 0 };
+      }
+    }),
+  );
+
   return {
-    ...nextConfig,
-    runtime: {
-      configPath: userConfigPath(),
-      userConfigPath: userConfigPath(),
-    },
+    modelsDir,
+    ok: files.every((file) => file.exists && file.size > 0),
+    files,
   };
 }
 
 function haConfig() {
   const homeAssistant = loadedConfig.homeAssistant ?? {};
-  const baseUrl = homeAssistant.baseUrl?.replace(/\/$/, "");
+  const baseUrl = normalizeHomeAssistantUrl(homeAssistant.baseUrl);
   const accessToken = homeAssistant.accessToken;
 
   if (!baseUrl || !accessToken) {
@@ -124,7 +244,7 @@ function haConfig() {
 
 function haConfigFrom(config: KioskConfig) {
   const homeAssistant = config.homeAssistant ?? {};
-  const baseUrl = homeAssistant.baseUrl?.replace(/\/$/, "");
+  const baseUrl = normalizeHomeAssistantUrl(homeAssistant.baseUrl);
   const accessToken = homeAssistant.accessToken;
 
   if (!baseUrl || !accessToken) {
@@ -134,14 +254,37 @@ function haConfigFrom(config: KioskConfig) {
   return { baseUrl, accessToken };
 }
 
+function normalizeHomeAssistantUrl(value?: string) {
+  const trimmed = value?.trim().replace(/\/$/, "");
+  if (!trimmed) return undefined;
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  return `http://${trimmed}`;
+}
+
+function homeAssistantFetchError(baseUrl: string, error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return new Error(
+    `Could not reach Home Assistant at ${baseUrl}. ` +
+      `Use the Home Assistant IP address if homeassistant.local does not resolve on Windows. ` +
+      `Details: ${message}`,
+  );
+}
+
 async function getHomeAssistant(config: KioskConfig) {
   const { baseUrl, accessToken } = haConfigFrom(config);
-  const response = await fetch(`${baseUrl}/api/`, {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-    },
-  });
+  let response: Response;
+
+  try {
+    response = await fetch(`${baseUrl}/api/`, {
+      signal: AbortSignal.timeout(8000),
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+    });
+  } catch (error) {
+    throw homeAssistantFetchError(baseUrl, error);
+  }
 
   if (!response.ok) {
     const text = await response.text();
@@ -234,6 +377,9 @@ app.whenReady().then(() => {
 
   ipcMain.handle("config:read", readConfig);
   ipcMain.handle("config:write", writeConfig);
+  ipcMain.handle("enrollments:read", readEnrollments);
+  ipcMain.handle("enrollments:write", writeEnrollments);
+  ipcMain.handle("models:check", checkModels);
   ipcMain.handle("ha:test", (_event, config: KioskConfig) =>
     getHomeAssistant(config),
   );

@@ -33,8 +33,21 @@ export type FaceQuality = {
   checks: FaceQualityCheck[];
 };
 
+export async function checkFaceModelFiles(modelUrl: string) {
+  const resolvedModelUrl = resolveKioskAssetUrl(modelUrl).replace(/\/$/, "");
+  const manifestUrl = `${resolvedModelUrl}/tiny_face_detector_model-weights_manifest.json`;
+  const response = await fetch(manifestUrl, { cache: "no-store" });
+
+  if (!response.ok) {
+    throw new Error(`Model manifest returned ${response.status} at ${manifestUrl}`);
+  }
+
+  await response.json();
+  return { modelUrl: resolvedModelUrl, manifestUrl };
+}
+
 export async function loadFaceApi(modelUrl: string): Promise<FaceApi> {
-  const resolvedModelUrl = resolveKioskAssetUrl(modelUrl);
+  const { modelUrl: resolvedModelUrl } = await checkFaceModelFiles(modelUrl);
   if (loadingPromise && loadedModelUrl === resolvedModelUrl) return loadingPromise;
 
   loadedModelUrl = resolvedModelUrl;

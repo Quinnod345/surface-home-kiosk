@@ -55,6 +55,7 @@ export type KioskConfig = {
   people: PersonProfile[];
   runtime?: {
     configPath?: string | null;
+    statePath?: string;
     userConfigPath?: string;
   };
 };
@@ -156,6 +157,10 @@ export async function saveKioskConfig(config: KioskConfig): Promise<KioskConfig>
 
   if (window.surfaceKiosk) {
     return normalizeConfig(await window.surfaceKiosk.saveConfig(normalized));
+  }
+
+  if (window.location.protocol === "kiosk:" || window.location.protocol === "file:") {
+    throw new Error("Desktop bridge unavailable. Reload the kiosk app and try again.");
   }
 
   window.localStorage.setItem(

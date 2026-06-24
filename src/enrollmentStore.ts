@@ -17,41 +17,78 @@ function emptyStore(): EnrollmentStore {
   return { version: 1, people: [] };
 }
 
+function normalizeStore(store: unknown): EnrollmentStore {
+  const parsed = store as Partial<EnrollmentStore>;
+  if (parsed.version !== 1 || !Array.isArray(parsed.people)) return emptyStore();
+
+  return {
+    version: 1,
+    people: parsed.people.filter(
+      (person): person is EnrolledPerson =>
+        typeof person.id === "string" &&
+        typeof person.displayName === "string" &&
+        Array.isArray(person.faceDescriptors),
+    ),
+  };
+}
+
 export function descriptorToArray(descriptor: Float32Array | number[]) {
   return Array.from(descriptor, (value) => Number(value.toFixed(8)));
 }
 
-export function loadEnrollments(): EnrollmentStore {
+function loadLocalStorageEnrollments(): EnrollmentStore {
   try {
     const raw = window.localStorage.getItem(enrollmentStorageKey);
     if (!raw) return emptyStore();
 
-    const parsed = JSON.parse(raw) as Partial<EnrollmentStore>;
-    if (parsed.version !== 1 || !Array.isArray(parsed.people)) return emptyStore();
-
-    return {
-      version: 1,
-      people: parsed.people.filter(
-        (person): person is EnrolledPerson =>
-          typeof person.id === "string" &&
-          typeof person.displayName === "string" &&
-          Array.isArray(person.faceDescriptors),
-      ),
-    };
+    return normalizeStore(JSON.parse(raw));
   } catch (error) {
     console.warn("Could not load local face enrollments", error);
     return emptyStore();
   }
 }
 
-export function saveEnrolledPerson(person: EnrolledPerson) {
-  const store = loadEnrollments();
+function saveLocalStorageEnrollments(store: EnrollmentStore) {
+  window.localStorage.setItem(enrollmentStorageKey, JSON.stringify(store));
+}
+
+export async function loadEnrollments(): Promise<EnrollmentStore> {
+  if (window.surfaceKiosk?.readEnrollments) {
+    const store = normalizeStore(await window.surfaceKiosk.readEnrollments());
+    if (store.people.length > 0) return store;
+
+    const localStore = loadLocalStorageEnrollments();
+    if (localStore.people.length > 0) {
+      return normalizeStore(await window.surfaceKiosk.writeEnrollments(localStore));
+    }
+
+    return store;
+  }
+
+  if (window.location.protocol === "kiosk:" || window.location.protocol === "file:") {
+    return emptyStore();
+  }
+
+  return loadLocalStorageEnrollments();
+}
+
+export async function saveEnrolledPerson(person: EnrolledPerson) {
+  const store = await loadEnrollments();
   const withoutExisting = store.people.filter((candidate) => candidate.id !== person.id);
   const nextStore: EnrollmentStore = {
     version: 1,
     people: [...withoutExisting, person],
   };
-  window.localStorage.setItem(enrollmentStorageKey, JSON.stringify(nextStore));
+
+  if (window.surfaceKiosk?.writeEnrollments) {
+    return normalizeStore(await window.surfaceKiosk.writeEnrollments(nextStore));
+  }
+
+  if (window.location.protocol === "kiosk:" || window.location.protocol === "file:") {
+    throw new Error("Desktop bridge unavailable. Reload the kiosk app and try again.");
+  }
+
+  saveLocalStorageEnrollments(nextStore);
   return nextStore;
 }
 

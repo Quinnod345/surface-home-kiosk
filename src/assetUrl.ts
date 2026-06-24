@@ -5,5 +5,9 @@ export function resolveKioskAssetUrl(url: string) {
     return `.${url}`;
   }
 
+  if (window.location.protocol === "kiosk:" && url.startsWith("/")) {
+    return `${window.location.origin}${url}`;
+  }
+
   return url;
 }

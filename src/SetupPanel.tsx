@@ -11,6 +11,22 @@ type SetupPanelProps = {
 
 type TestStatus = "idle" | "testing" | "ok" | "error";
 
+function normalizeHttpUrl(value: string) {
+  const trimmed = value.trim().replace(/\/$/, "");
+  if (!trimmed) return "";
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  return `http://${trimmed}`;
+}
+
+function normalizeDashboardUrl(value: string, baseUrl: string) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return baseUrl ? `${baseUrl}/lovelace/default_view?kiosk` : "";
+  }
+  if (trimmed.startsWith("/") && baseUrl) return new URL(trimmed, baseUrl).toString();
+  return normalizeHttpUrl(trimmed);
+}
+
 export function SetupPanel({ config, onClose, onSaved }: SetupPanelProps) {
   const [baseUrl, setBaseUrl] = useState(config.homeAssistant.baseUrl);
   const [dashboardUrl, setDashboardUrl] = useState(config.homeAssistant.dashboardUrl);
@@ -27,31 +43,40 @@ export function SetupPanel({ config, onClose, onSaved }: SetupPanelProps) {
   const [showToken, setShowToken] = useState(false);
   const [testStatus, setTestStatus] = useState<TestStatus>("idle");
   const [message, setMessage] = useState<string | null>(null);
+  const [savedPath, setSavedPath] = useState(
+    config.runtime?.statePath ??
+      config.runtime?.userConfigPath ??
+      config.runtime?.configPath ??
+      null,
+  );
 
   const nextConfig = useMemo<KioskConfig>(
-    () => ({
-      ...config,
-      homeAssistant: {
-        ...config.homeAssistant,
-        baseUrl: baseUrl.trim().replace(/\/$/, ""),
-        dashboardUrl: dashboardUrl.trim(),
-        accessToken: accessToken.trim() || undefined,
-        eventPrefix: eventPrefix.trim() || "surface_kiosk",
-      },
-      camera: {
-        ...config.camera,
-        enabled: cameraEnabled,
-      },
-      faceRecognition: {
-        ...config.faceRecognition,
-        enabled: faceEnabled,
-      },
-      nativeBridge: {
-        ...config.nativeBridge,
-        enabled: bridgeEnabled,
-        preferredSourceKind,
-      },
-    }),
+    () => {
+      const normalizedBaseUrl = normalizeHttpUrl(baseUrl);
+      return {
+        ...config,
+        homeAssistant: {
+          ...config.homeAssistant,
+          baseUrl: normalizedBaseUrl,
+          dashboardUrl: normalizeDashboardUrl(dashboardUrl, normalizedBaseUrl),
+          accessToken: accessToken.trim() || undefined,
+          eventPrefix: eventPrefix.trim() || "surface_kiosk",
+        },
+        camera: {
+          ...config.camera,
+          enabled: cameraEnabled,
+        },
+        faceRecognition: {
+          ...config.faceRecognition,
+          enabled: faceEnabled,
+        },
+        nativeBridge: {
+          ...config.nativeBridge,
+          enabled: bridgeEnabled,
+          preferredSourceKind,
+        },
+      };
+    },
     [
       accessToken,
       baseUrl,
@@ -71,6 +96,11 @@ export function SetupPanel({ config, onClose, onSaved }: SetupPanelProps) {
     try {
       if (window.surfaceKiosk) {
         await window.surfaceKiosk.testHomeAssistant(nextConfig);
+      } else if (
+        window.location.protocol === "kiosk:" ||
+        window.location.protocol === "file:"
+      ) {
+        throw new Error("Desktop bridge unavailable. Reload the kiosk app and try again.");
       } else {
         const response = await fetch(`${nextConfig.homeAssistant.baseUrl}/api/`, {
           headers: {
@@ -91,8 +121,14 @@ export function SetupPanel({ config, onClose, onSaved }: SetupPanelProps) {
     setMessage(null);
     try {
       const saved = await saveKioskConfig(nextConfig);
+      setSavedPath(
+        saved.runtime?.statePath ??
+          saved.runtime?.userConfigPath ??
+          saved.runtime?.configPath ??
+          null,
+      );
+      setMessage("Saved to this tablet.");
       onSaved(saved);
-      setMessage("Saved. The kiosk will use this config immediately.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not save config.");
     }
@@ -207,6 +243,11 @@ export function SetupPanel({ config, onClose, onSaved }: SetupPanelProps) {
           {message}
         </p>
       ) : null}
+
+      <div className="setup-storage">
+        <span>Local app database</span>
+        <strong>{savedPath ?? "Will be created when you save."}</strong>
+      </div>
 
       <div className="panel-actions">
         <button type="button" className="secondary-action" onClick={testHomeAssistant}>

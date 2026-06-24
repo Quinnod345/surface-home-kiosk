@@ -578,6 +578,25 @@ select {
   color: #ffb9ad;
 }
 
+.setup-storage {
+  display: grid;
+  gap: 4px;
+  margin-top: 12px;
+  padding: 10px;
+  color: rgba(255, 255, 255, 0.68);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.setup-storage strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: rgba(255, 255, 255, 0.88);
+  font-weight: 600;
+}
+
 .enrollment-footer {
   margin-top: 16px;
   padding-top: 14px;
