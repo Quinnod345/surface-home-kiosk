@@ -92,11 +92,11 @@ function Install-Dependencies {
       node $electronInstall
     }
 
-    npm run build
-
     if (-not $SkipModels) {
       npm run download:face-models
     }
+
+    npm run build
   } finally {
     Pop-Location
   }
@@ -140,7 +140,7 @@ Ensure-Command "dotnet" "Microsoft.DotNet.SDK.8" "Install the .NET 8 SDK from ht
 Write-Host "Updating kiosk config..."
 Update-Config
 
-Write-Host "Installing npm dependencies, building app, and downloading face models..."
+Write-Host "Installing npm dependencies, downloading face models, and building app..."
 Install-Dependencies
 
 Write-Host "Publishing Surface camera bridge..."

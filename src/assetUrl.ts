@@ -1,5 +1,5 @@
 export function resolveKioskAssetUrl(url: string) {
-  if (/^(https?:|data:|blob:|file:|ws:|wss:)/i.test(url)) return url;
+  if (/^[a-z][a-z\d+\-.]*:/i.test(url)) return url;
 
   if (window.location.protocol === "file:" && url.startsWith("/")) {
     return `.${url}`;

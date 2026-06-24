@@ -1,5 +1,5 @@
 import { Camera, Check, Loader2, UserPlus, X } from "lucide-react";
-import { CSSProperties, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import type { KioskConfig } from "./config";
 import {
   descriptorToArray,

@@ -1,11 +1,13 @@
 import { createWriteStream } from "node:fs";
-import { mkdir } from "node:fs/promises";
+import { copyFile, mkdir, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { pipeline } from "node:stream/promises";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const outputDir = join(__dirname, "..", "public", "models");
+const distRoot = join(__dirname, "..", "dist");
+const distOutputDir = join(distRoot, "models");
 const baseUrl = "https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model";
 
 const files = [
@@ -17,7 +19,21 @@ const files = [
   "face_recognition_model-shard1",
 ];
 
+async function pathExists(path) {
+  try {
+    await stat(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 await mkdir(outputDir, { recursive: true });
+const copyToDist = await pathExists(distRoot);
+
+if (copyToDist) {
+  await mkdir(distOutputDir, { recursive: true });
+}
 
 for (const file of files) {
   const url = `${baseUrl}/${file}`;
@@ -28,4 +44,9 @@ for (const file of files) {
   }
   await pipeline(response.body, createWriteStream(destination));
   console.log(`Downloaded ${file}`);
+
+  if (copyToDist) {
+    await copyFile(destination, join(distOutputDir, file));
+    console.log(`Copied ${file} to dist/models`);
+  }
 }

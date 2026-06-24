@@ -1,7 +1,7 @@
-import { app, BrowserWindow, ipcMain } from "electron";
+import { app, BrowserWindow, ipcMain, net, protocol } from "electron";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 type HomeAssistantConfig = {
   baseUrl?: string;
@@ -20,6 +20,18 @@ const __dirname = path.dirname(__filename);
 
 let mainWindow: BrowserWindow | null = null;
 let loadedConfig: KioskConfig = {};
+
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: "kiosk",
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+    },
+  },
+]);
 
 function appRoot() {
   return path.resolve(__dirname, "..", "..");
@@ -160,6 +172,32 @@ async function postHomeAssistant(pathname: string, payload: unknown) {
   return body ? JSON.parse(body) : null;
 }
 
+function distAssetPath(requestUrl: string) {
+  const distRoot = path.join(appRoot(), "dist");
+  const url = new URL(requestUrl);
+  const requestPath =
+    url.pathname === "/" ? "index.html" : decodeURIComponent(url.pathname).replace(/^\/+/, "");
+  const filePath = path.normalize(path.join(distRoot, requestPath));
+  const relativePath = path.relative(distRoot, filePath);
+
+  if (relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
+    return null;
+  }
+
+  return filePath;
+}
+
+function registerKioskProtocol() {
+  protocol.handle("kiosk", (request) => {
+    const filePath = distAssetPath(request.url);
+    if (!filePath) {
+      return new Response("Not found", { status: 404 });
+    }
+
+    return net.fetch(pathToFileURL(filePath).toString());
+  });
+}
+
 function createWindow() {
   const fullscreen = process.env.SURFACE_KIOSK === "1";
   const useDevServer =
@@ -187,11 +225,13 @@ function createWindow() {
   if (useDevServer) {
     mainWindow.loadURL(devServerUrl());
   } else {
-    mainWindow.loadFile(path.join(appRoot(), "dist", "index.html"));
+    mainWindow.loadURL("kiosk://app/index.html");
   }
 }
 
 app.whenReady().then(() => {
+  registerKioskProtocol();
+
   ipcMain.handle("config:read", readConfig);
   ipcMain.handle("config:write", writeConfig);
   ipcMain.handle("ha:test", (_event, config: KioskConfig) =>

@@ -45,6 +45,12 @@ export async function loadFaceApi(modelUrl: string): Promise<FaceApi> {
       faceapi.nets.faceRecognitionNet.loadFromUri(resolvedModelUrl),
     ]);
     return faceapi;
+  }).catch((error) => {
+    if (loadedModelUrl === resolvedModelUrl) {
+      loadingPromise = null;
+      loadedModelUrl = null;
+    }
+    throw error;
   });
 
   return loadingPromise;

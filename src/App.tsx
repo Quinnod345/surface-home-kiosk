@@ -22,6 +22,7 @@ import {
 } from "./config";
 import { resolveKioskAssetUrl } from "./assetUrl";
 import { EnrollmentPanel } from "./EnrollmentPanel";
+import { loadFaceApi } from "./faceApiRuntime";
 import { SetupPanel } from "./SetupPanel";
 import {
   loadEnrollments,
@@ -34,7 +35,10 @@ import {
   setHomeAssistantText,
 } from "./homeAssistant";
 import { useCameraFeed } from "./useCameraFeed";
-import { useFaceRecognition } from "./useFaceRecognition";
+import {
+  useFaceRecognition,
+  type FaceRecognitionStatus,
+} from "./useFaceRecognition";
 import { useMotionPresence } from "./useMotionPresence";
 import { useNativeBridgeFrames } from "./useNativeBridgeFrames";
 
@@ -66,6 +70,20 @@ function personGreeting(person: PersonProfile) {
   return person.greeting ?? `Welcome, ${person.displayName}.`;
 }
 
+function hasHomeAssistantConfig(config: KioskConfig) {
+  return Boolean(
+    config.homeAssistant.baseUrl &&
+      config.homeAssistant.dashboardUrl &&
+      config.homeAssistant.accessToken,
+  );
+}
+
+function faceStatusLabel(status: FaceRecognitionStatus, peopleCount: number) {
+  if (status === "no-reference-faces" || peopleCount === 0) return "Enroll";
+  if (status === "model-error") return "Model error";
+  return status;
+}
+
 export default function App() {
   const [config, setConfig] = useState<KioskConfig>(defaultConfig);
   const [configLoaded, setConfigLoaded] = useState(false);
@@ -80,9 +98,14 @@ export default function App() {
   const [enrolledPeople, setEnrolledPeople] = useState<EnrolledPerson[]>([]);
   const [haStatus, setHaStatus] = useState<"idle" | "ok" | "error">("idle");
   const [haError, setHaError] = useState<string | null>(null);
+  const [modelTestStatus, setModelTestStatus] = useState<
+    "idle" | "testing" | "ok" | "error"
+  >("idle");
+  const [modelTestMessage, setModelTestMessage] = useState<string | null>(null);
   const lastInteractionAtRef = useRef(Date.now());
   const lastGreetedRef = useRef<Record<string, number>>({});
   const lastOccupancyRef = useRef(false);
+  const openedFirstRunRef = useRef(false);
 
   const effectiveConfig = useMemo<KioskConfig>(
     () => ({
@@ -124,6 +147,24 @@ export default function App() {
     () => dashboardUrlFor(effectiveConfig, activePersonId),
     [activePersonId, effectiveConfig],
   );
+  const homeAssistantConfigured = useMemo(
+    () => hasHomeAssistantConfig(effectiveConfig),
+    [effectiveConfig],
+  );
+  const homeAssistantSetupNeeded = configLoaded && !homeAssistantConfigured;
+  const cameraSetupNeeded =
+    configLoaded &&
+    (!effectiveConfig.faceRecognition.enabled || !effectiveConfig.camera.enabled);
+  const faceEnrollmentNeeded =
+    configLoaded &&
+    effectiveConfig.faceRecognition.enabled &&
+    effectiveConfig.people.length === 0;
+  const setupNeeded = homeAssistantSetupNeeded || cameraSetupNeeded;
+  const guidedStartNeeded = setupNeeded || faceEnrollmentNeeded;
+  const faceStatusText = faceStatusLabel(
+    faceRecognition.status,
+    effectiveConfig.people.length,
+  );
 
   const sendEvent = useCallback(
     async (name: string, payload: Record<string, unknown>) => {
@@ -143,13 +184,24 @@ export default function App() {
     (reason: string, person?: PersonProfile | null) => {
       lastInteractionAtRef.current = Date.now();
       if (person) setActivePersonId(person.id);
+      if (configLoaded && !homeAssistantConfigured) {
+        setMode("idle");
+        setShowSetup(true);
+        return;
+      }
       setMode("dashboard");
       void sendEvent("dashboard_opened", {
         ...kioskPayload(effectiveConfig, "dashboard", person ?? activePerson),
         reason,
       });
     },
-    [activePerson, effectiveConfig, sendEvent],
+    [
+      activePerson,
+      configLoaded,
+      effectiveConfig,
+      homeAssistantConfigured,
+      sendEvent,
+    ],
   );
 
   const returnToPhotos = useCallback(
@@ -181,6 +233,12 @@ export default function App() {
       .finally(() => setConfigLoaded(true));
     setEnrolledPeople(loadEnrollments().people);
   }, []);
+
+  useEffect(() => {
+    if (!homeAssistantSetupNeeded || openedFirstRunRef.current) return;
+    openedFirstRunRef.current = true;
+    setShowSetup(true);
+  }, [homeAssistantSetupNeeded]);
 
   useEffect(() => {
     const interval = window.setInterval(() => setClock(new Date()), 1000);
@@ -288,14 +346,6 @@ export default function App() {
 
   const currentPhoto = photos[photoIndex % Math.max(1, photos.length)];
   const showFallbackPhoto = !currentPhoto;
-  const setupNeeded =
-    configLoaded &&
-    (!config.homeAssistant.dashboardUrl ||
-      !config.homeAssistant.accessToken ||
-      config.homeAssistant.dashboardUrl.includes("homeassistant.local") ||
-      !config.faceRecognition.enabled ||
-      !config.camera.enabled);
-
   const testPerson = activePerson ?? effectiveConfig.people[0] ?? null;
 
   function runRecognitionTest() {
@@ -303,6 +353,21 @@ export default function App() {
     setActivePersonId(testPerson.id);
     speak(personGreeting(testPerson));
     enterDashboard("recognition-test", testPerson);
+  }
+
+  async function runModelTest() {
+    setModelTestStatus("testing");
+    setModelTestMessage(null);
+    try {
+      await loadFaceApi(effectiveConfig.faceRecognition.modelUrl);
+      setModelTestStatus("ok");
+      setModelTestMessage("Models loaded.");
+    } catch (error) {
+      setModelTestStatus("error");
+      setModelTestMessage(
+        error instanceof Error ? error.message : "Face models could not load.",
+      );
+    }
   }
 
   return (
@@ -340,13 +405,24 @@ export default function App() {
       </section>
 
       <section className="dashboard-stage" aria-hidden={mode !== "dashboard"}>
-        <iframe
-          key={dashboardUrl}
-          className="ha-frame"
-          title="Home Assistant"
-          src={dashboardUrl}
-          allow="camera; microphone; fullscreen"
-        />
+        {homeAssistantConfigured ? (
+          <iframe
+            key={dashboardUrl}
+            className="ha-frame"
+            title="Home Assistant"
+            src={dashboardUrl}
+            allow="camera; microphone; fullscreen"
+          />
+        ) : (
+          <div className="dashboard-empty">
+            <span className="eyebrow">Home Assistant</span>
+            <h2>Connect your dashboard</h2>
+            <button type="button" className="save-action" onClick={() => setShowSetup(true)}>
+              <Settings size={18} />
+              <span>Setup</span>
+            </button>
+          </div>
+        )}
       </section>
 
       <div className="top-rail">
@@ -362,7 +438,7 @@ export default function App() {
           </span>
           <span title={`Face recognition: ${faceRecognition.status}`}>
             <ScanFace size={16} />
-            {faceRecognition.status}
+            {faceStatusText}
           </span>
           <span title={nativeBridge.error ?? `Native bridge: ${nativeBridge.status}`}>
             <Radio size={16} />
@@ -465,7 +541,53 @@ export default function App() {
           onClick={() => setShowSetup(true)}
         >
           <Settings size={16} />
-          <span>Setup needed: Home Assistant, camera, or recognition is incomplete.</span>
+          <span>
+            {homeAssistantSetupNeeded
+              ? "Home Assistant needs a URL and token."
+              : "Camera or recognition is turned off."}
+          </span>
+        </aside>
+      ) : null}
+
+      {guidedStartNeeded && !showSetup && !showEnrollment && !showTestPanel ? (
+        <aside
+          className="guided-start"
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          <div>
+            <span className="eyebrow">Guided setup</span>
+            <h2>
+              {homeAssistantSetupNeeded
+                ? "Connect Home Assistant"
+                : "Enroll the first face"}
+            </h2>
+            <p>
+              {homeAssistantSetupNeeded
+                ? "Add the dashboard URL and a long-lived token, then test the connection."
+                : "Use the live preview to capture three angles and create the local face embedding."}
+            </p>
+          </div>
+          <div className="guided-actions">
+            <button type="button" onClick={() => setShowSetup(true)}>
+              <Settings size={18} />
+              <strong>Home Assistant</strong>
+              <span>{homeAssistantConfigured ? "Ready" : "Needs setup"}</span>
+            </button>
+            <button type="button" onClick={() => setShowEnrollment(true)}>
+              <UserPlus size={18} />
+              <strong>Register face</strong>
+              <span>
+                {faceEnrollmentNeeded
+                  ? "No samples yet"
+                  : `${effectiveConfig.people.length} enrolled`}
+              </span>
+            </button>
+            <button type="button" onClick={() => setShowTestPanel(true)}>
+              <ScanFace size={18} />
+              <strong>Test</strong>
+              <span>{faceStatusText}</span>
+            </button>
+          </div>
         </aside>
       ) : null}
 
@@ -517,10 +639,21 @@ export default function App() {
             <strong>{nativeBridge.status}</strong>
             <span>Face</span>
             <strong>{faceRecognition.status}</strong>
+            <span>Models</span>
+            <strong>{modelTestMessage ?? modelTestStatus}</strong>
             <span>Match</span>
             <strong>{faceRecognition.face?.confidenceLabel ?? "none"}</strong>
           </div>
           <div className="panel-actions">
+            <button
+              type="button"
+              className="secondary-action"
+              disabled={modelTestStatus === "testing"}
+              onClick={runModelTest}
+            >
+              <ScanFace size={18} />
+              <span>{modelTestStatus === "testing" ? "Testing" : "Test models"}</span>
+            </button>
             <button
               type="button"
               className="secondary-action"

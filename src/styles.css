@@ -154,12 +154,33 @@ select {
   background: #111;
 }
 
+.dashboard-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 14px;
+  padding: 32px;
+  text-align: center;
+  background:
+    linear-gradient(135deg, rgba(39, 45, 47, 0.92), rgba(10, 11, 14, 0.98)),
+    #0f1115;
+}
+
+.dashboard-empty h2 {
+  margin: 0;
+  font-size: 34px;
+  line-height: 1.05;
+}
+
 .top-rail {
   position: absolute;
   top: 12px;
   left: 12px;
   right: 12px;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
@@ -194,6 +215,8 @@ select {
 }
 
 .telemetry {
+  min-width: 0;
+  max-width: min(48vw, 560px);
   flex-wrap: wrap;
   justify-content: center;
   color: rgba(255, 255, 255, 0.72);
@@ -211,6 +234,10 @@ select {
 }
 
 .controls {
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  max-width: 320px;
   padding: 5px;
 }
 
@@ -559,6 +586,7 @@ select {
 
 .panel-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 10px;
   margin-top: 16px;
@@ -625,6 +653,79 @@ select {
   cursor: pointer;
 }
 
+.guided-start {
+  position: absolute;
+  left: clamp(18px, 4vw, 52px);
+  bottom: clamp(28px, 7vh, 72px);
+  z-index: 7;
+  display: grid;
+  gap: 16px;
+  width: min(620px, calc(100vw - 36px));
+  color: rgba(255, 255, 255, 0.9);
+  background: rgba(9, 11, 14, 0.86);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  padding: 18px;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.38);
+  backdrop-filter: blur(18px);
+}
+
+.guided-start h2 {
+  margin: 3px 0 8px;
+  font-size: 26px;
+  line-height: 1.08;
+}
+
+.guided-start p {
+  max-width: 52ch;
+  margin: 0;
+  color: rgba(255, 255, 255, 0.68);
+  line-height: 1.4;
+}
+
+.guided-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.guided-actions button {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 3px 8px;
+  align-items: center;
+  min-height: 72px;
+  color: rgba(255, 255, 255, 0.9);
+  text-align: left;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  padding: 10px;
+  cursor: pointer;
+}
+
+.guided-actions button:hover,
+.guided-actions button:focus-visible {
+  background: rgba(255, 255, 255, 0.13);
+}
+
+.guided-actions svg {
+  grid-row: span 2;
+}
+
+.guided-actions strong,
+.guided-actions span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.guided-actions span {
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 12px;
+}
+
 .debug-panel {
   bottom: 68px;
   flex-wrap: wrap;
@@ -668,6 +769,17 @@ select {
 
   .setup-strip {
     font-size: 13px;
+  }
+
+  .guided-start {
+    left: 16px;
+    right: 16px;
+    bottom: 16px;
+    width: auto;
+  }
+
+  .guided-actions {
+    grid-template-columns: 1fr;
   }
 
   .enrollment-panel {
