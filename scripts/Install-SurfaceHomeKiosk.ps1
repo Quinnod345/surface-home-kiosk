@@ -87,6 +87,11 @@ function Install-Dependencies {
       npm install
     }
 
+    $electronInstall = Join-Path $Root "node_modules\electron\install.js"
+    if (Test-Path $electronInstall) {
+      node $electronInstall
+    }
+
     npm run build
 
     if (-not $SkipModels) {
