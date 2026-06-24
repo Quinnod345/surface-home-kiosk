@@ -107,6 +107,10 @@ function Install-Autostart {
     -Execute "powershell.exe" `
     -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$StartScript`""
   $trigger = New-ScheduledTaskTrigger -AtLogOn
+  $principal = New-ScheduledTaskPrincipal `
+    -UserId ([Security.Principal.WindowsIdentity]::GetCurrent().Name) `
+    -LogonType Interactive `
+    -RunLevel Limited
   $settings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries `
     -DontStopIfGoingOnBatteries `
@@ -116,6 +120,7 @@ function Install-Autostart {
     -TaskName $TaskName `
     -Action $action `
     -Trigger $trigger `
+    -Principal $principal `
     -Settings $settings `
     -Description "Starts the Surface Home Kiosk and camera bridge at sign-in." `
     -Force | Out-Null

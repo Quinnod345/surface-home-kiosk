@@ -113,6 +113,11 @@ async function postHomeAssistant(pathname: string, payload: unknown) {
 
 function createWindow() {
   const fullscreen = process.env.SURFACE_KIOSK === "1";
+  const useDevServer =
+    Boolean(process.env.VITE_DEV_SERVER_URL) ||
+    (process.env.NODE_ENV !== "production" &&
+      process.env.SURFACE_KIOSK !== "1" &&
+      !app.isPackaged);
 
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -130,7 +135,7 @@ function createWindow() {
     },
   });
 
-  if (process.env.NODE_ENV === "development" || !app.isPackaged) {
+  if (useDevServer) {
     mainWindow.loadURL(devServerUrl());
   } else {
     mainWindow.loadFile(path.join(appRoot(), "dist", "index.html"));
