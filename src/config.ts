@@ -80,7 +80,7 @@ export const defaultConfig: KioskConfig = {
     closeFaceRatio: 0.34,
   },
   faceRecognition: {
-    enabled: false,
+    enabled: true,
     modelUrl: "/models",
     matchThreshold: 0.5,
     scanIntervalMs: 1400,
@@ -88,7 +88,7 @@ export const defaultConfig: KioskConfig = {
     greetCooldownMs: 180000,
   },
   nativeBridge: {
-    enabled: false,
+    enabled: true,
     url: "ws://127.0.0.1:8765/events",
     preferredSourceKind: "Infrared",
   },
@@ -130,6 +130,15 @@ export async function loadKioskConfig(): Promise<KioskConfig> {
     return normalizeConfig(await window.surfaceKiosk.readConfig());
   }
 
+  const localConfig = window.localStorage.getItem("surface-home-kiosk.config.v1");
+  if (localConfig) {
+    try {
+      return normalizeConfig(JSON.parse(localConfig));
+    } catch (error) {
+      console.warn("Could not load locally saved kiosk config", error);
+    }
+  }
+
   try {
     const response = await fetch("/kiosk-config.json", { cache: "no-store" });
     if (response.ok) {
@@ -140,6 +149,20 @@ export async function loadKioskConfig(): Promise<KioskConfig> {
   }
 
   return defaultConfig;
+}
+
+export async function saveKioskConfig(config: KioskConfig): Promise<KioskConfig> {
+  const normalized = normalizeConfig(config);
+
+  if (window.surfaceKiosk) {
+    return normalizeConfig(await window.surfaceKiosk.saveConfig(normalized));
+  }
+
+  window.localStorage.setItem(
+    "surface-home-kiosk.config.v1",
+    JSON.stringify(normalized),
+  );
+  return normalized;
 }
 
 export function dashboardUrlFor(config: KioskConfig, personId?: string | null) {

@@ -9,6 +9,7 @@ import {
   Settings,
   UserPlus,
   Video,
+  X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -21,6 +22,7 @@ import {
 } from "./config";
 import { resolveKioskAssetUrl } from "./assetUrl";
 import { EnrollmentPanel } from "./EnrollmentPanel";
+import { SetupPanel } from "./SetupPanel";
 import {
   loadEnrollments,
   mergePeople,
@@ -73,6 +75,8 @@ export default function App() {
   const [clock, setClock] = useState(new Date());
   const [isKiosk, setIsKiosk] = useState(false);
   const [showEnrollment, setShowEnrollment] = useState(false);
+  const [showSetup, setShowSetup] = useState(false);
+  const [showTestPanel, setShowTestPanel] = useState(false);
   const [enrolledPeople, setEnrolledPeople] = useState<EnrolledPerson[]>([]);
   const [haStatus, setHaStatus] = useState<"idle" | "ok" | "error">("idle");
   const [haError, setHaError] = useState<string | null>(null);
@@ -88,7 +92,7 @@ export default function App() {
     [config, enrolledPeople],
   );
 
-  const { videoRef, status: cameraStatus } = useCameraFeed(
+  const { videoRef, status: cameraStatus, stream: cameraStream } = useCameraFeed(
     effectiveConfig.camera.enabled,
     effectiveConfig.camera.width,
     effectiveConfig.camera.height,
@@ -287,7 +291,19 @@ export default function App() {
   const setupNeeded =
     configLoaded &&
     (!config.homeAssistant.dashboardUrl ||
-      config.homeAssistant.dashboardUrl.includes("homeassistant.local"));
+      !config.homeAssistant.accessToken ||
+      config.homeAssistant.dashboardUrl.includes("homeassistant.local") ||
+      !config.faceRecognition.enabled ||
+      !config.camera.enabled);
+
+  const testPerson = activePerson ?? effectiveConfig.people[0] ?? null;
+
+  function runRecognitionTest() {
+    if (!testPerson) return;
+    setActivePersonId(testPerson.id);
+    speak(personGreeting(testPerson));
+    enterDashboard("recognition-test", testPerson);
+  }
 
   return (
     <main
@@ -394,6 +410,28 @@ export default function App() {
           </button>
           <button
             type="button"
+            title="Test recognition"
+            aria-label="Test recognition"
+            onClick={(event) => {
+              event.stopPropagation();
+              setShowTestPanel(true);
+            }}
+          >
+            <ScanFace size={18} />
+          </button>
+          <button
+            type="button"
+            title="Setup"
+            aria-label="Setup"
+            onClick={(event) => {
+              event.stopPropagation();
+              setShowSetup(true);
+            }}
+          >
+            <Settings size={18} />
+          </button>
+          <button
+            type="button"
             title={isKiosk ? "Exit fullscreen" : "Fullscreen"}
             aria-label={isKiosk ? "Exit fullscreen" : "Fullscreen"}
             onClick={(event) => {
@@ -421,23 +459,87 @@ export default function App() {
       </div>
 
       {setupNeeded ? (
-        <aside className="setup-strip" onPointerDown={(event) => event.stopPropagation()}>
+        <aside
+          className="setup-strip"
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={() => setShowSetup(true)}
+        >
           <Settings size={16} />
-          <span>
-            Configure Home Assistant in{" "}
-            {config.runtime?.userConfigPath ?? "kiosk-config.json"}.
-          </span>
+          <span>Setup needed: Home Assistant, camera, or recognition is incomplete.</span>
         </aside>
+      ) : null}
+
+      {showSetup ? (
+        <SetupPanel
+          config={config}
+          onClose={() => setShowSetup(false)}
+          onSaved={(saved) => {
+            setConfig(saved);
+            setShowSetup(false);
+          }}
+        />
       ) : null}
 
       {showEnrollment ? (
         <EnrollmentPanel
           config={effectiveConfig}
+          stream={cameraStream}
           video={videoRef.current}
           bridgeFrameDataUrl={nativeBridge.frame?.dataUrl}
           onClose={() => setShowEnrollment(false)}
           onSaved={(people) => setEnrolledPeople(people)}
         />
+      ) : null}
+
+      {showTestPanel ? (
+        <aside
+          className="test-panel"
+          aria-label="Recognition test"
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          <div className="panel-header">
+            <div>
+              <span className="eyebrow">Recognition test</span>
+              <h2>{faceRecognition.person?.displayName ?? "No match yet"}</h2>
+            </div>
+            <button
+              type="button"
+              aria-label="Close recognition test"
+              onClick={() => setShowTestPanel(false)}
+            >
+              <X size={18} />
+            </button>
+          </div>
+          <div className="test-grid">
+            <span>Camera</span>
+            <strong>{cameraStatus}</strong>
+            <span>Bridge</span>
+            <strong>{nativeBridge.status}</strong>
+            <span>Face</span>
+            <strong>{faceRecognition.status}</strong>
+            <span>Match</span>
+            <strong>{faceRecognition.face?.confidenceLabel ?? "none"}</strong>
+          </div>
+          <div className="panel-actions">
+            <button
+              type="button"
+              className="secondary-action"
+              onClick={() => setShowEnrollment(true)}
+            >
+              <UserPlus size={18} />
+              <span>Enroll</span>
+            </button>
+            <button
+              type="button"
+              className="save-action"
+              disabled={!testPerson}
+              onClick={runRecognitionTest}
+            >
+              <ScanFace size={18} />
+              <span>Test welcome</span>
+            </button>
+          </div>
+        </aside>
       ) : null}
 
       {config.debug ? (

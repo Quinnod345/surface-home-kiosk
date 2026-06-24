@@ -1,0 +1,223 @@
+import { Check, Eye, EyeOff, Loader2, PlugZap, Save, X } from "lucide-react";
+import { useMemo, useState } from "react";
+import type { KioskConfig } from "./config";
+import { saveKioskConfig } from "./config";
+
+type SetupPanelProps = {
+  config: KioskConfig;
+  onClose: () => void;
+  onSaved: (config: KioskConfig) => void;
+};
+
+type TestStatus = "idle" | "testing" | "ok" | "error";
+
+export function SetupPanel({ config, onClose, onSaved }: SetupPanelProps) {
+  const [baseUrl, setBaseUrl] = useState(config.homeAssistant.baseUrl);
+  const [dashboardUrl, setDashboardUrl] = useState(config.homeAssistant.dashboardUrl);
+  const [accessToken, setAccessToken] = useState(
+    config.homeAssistant.accessToken ?? "",
+  );
+  const [eventPrefix, setEventPrefix] = useState(config.homeAssistant.eventPrefix);
+  const [faceEnabled, setFaceEnabled] = useState(config.faceRecognition.enabled);
+  const [cameraEnabled, setCameraEnabled] = useState(config.camera.enabled);
+  const [bridgeEnabled, setBridgeEnabled] = useState(config.nativeBridge.enabled);
+  const [preferredSourceKind, setPreferredSourceKind] = useState(
+    config.nativeBridge.preferredSourceKind,
+  );
+  const [showToken, setShowToken] = useState(false);
+  const [testStatus, setTestStatus] = useState<TestStatus>("idle");
+  const [message, setMessage] = useState<string | null>(null);
+
+  const nextConfig = useMemo<KioskConfig>(
+    () => ({
+      ...config,
+      homeAssistant: {
+        ...config.homeAssistant,
+        baseUrl: baseUrl.trim().replace(/\/$/, ""),
+        dashboardUrl: dashboardUrl.trim(),
+        accessToken: accessToken.trim() || undefined,
+        eventPrefix: eventPrefix.trim() || "surface_kiosk",
+      },
+      camera: {
+        ...config.camera,
+        enabled: cameraEnabled,
+      },
+      faceRecognition: {
+        ...config.faceRecognition,
+        enabled: faceEnabled,
+      },
+      nativeBridge: {
+        ...config.nativeBridge,
+        enabled: bridgeEnabled,
+        preferredSourceKind,
+      },
+    }),
+    [
+      accessToken,
+      baseUrl,
+      bridgeEnabled,
+      cameraEnabled,
+      config,
+      dashboardUrl,
+      eventPrefix,
+      faceEnabled,
+      preferredSourceKind,
+    ],
+  );
+
+  async function testHomeAssistant() {
+    setTestStatus("testing");
+    setMessage(null);
+    try {
+      if (window.surfaceKiosk) {
+        await window.surfaceKiosk.testHomeAssistant(nextConfig);
+      } else {
+        const response = await fetch(`${nextConfig.homeAssistant.baseUrl}/api/`, {
+          headers: {
+            Authorization: `Bearer ${nextConfig.homeAssistant.accessToken ?? ""}`,
+          },
+        });
+        if (!response.ok) throw new Error(`Home Assistant ${response.status}`);
+      }
+      setTestStatus("ok");
+      setMessage("Home Assistant accepted the token.");
+    } catch (error) {
+      setTestStatus("error");
+      setMessage(error instanceof Error ? error.message : "Could not reach Home Assistant.");
+    }
+  }
+
+  async function save() {
+    setMessage(null);
+    try {
+      const saved = await saveKioskConfig(nextConfig);
+      onSaved(saved);
+      setMessage("Saved. The kiosk will use this config immediately.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not save config.");
+    }
+  }
+
+  return (
+    <aside
+      className="setup-panel"
+      aria-label="Kiosk setup"
+      onPointerDown={(event) => event.stopPropagation()}
+    >
+      <div className="panel-header">
+        <div>
+          <span className="eyebrow">Setup</span>
+          <h2>Home Assistant</h2>
+        </div>
+        <button type="button" aria-label="Close setup" onClick={onClose}>
+          <X size={18} />
+        </button>
+      </div>
+
+      <div className="setup-fields">
+        <label className="wide">
+          <span>Home Assistant URL</span>
+          <input
+            value={baseUrl}
+            placeholder="http://homeassistant.local:8123"
+            onChange={(event) => setBaseUrl(event.target.value)}
+          />
+        </label>
+
+        <label className="wide">
+          <span>Dashboard URL</span>
+          <input
+            value={dashboardUrl}
+            placeholder="http://homeassistant.local:8123/lovelace/default_view?kiosk"
+            onChange={(event) => setDashboardUrl(event.target.value)}
+          />
+        </label>
+
+        <label className="wide token-field">
+          <span>Long-lived access token</span>
+          <div>
+            <input
+              value={accessToken}
+              type={showToken ? "text" : "password"}
+              placeholder="Paste token"
+              onChange={(event) => setAccessToken(event.target.value)}
+            />
+            <button
+              type="button"
+              aria-label={showToken ? "Hide token" : "Show token"}
+              onClick={() => setShowToken((visible) => !visible)}
+            >
+              {showToken ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
+          </div>
+        </label>
+
+        <label>
+          <span>Event prefix</span>
+          <input
+            value={eventPrefix}
+            placeholder="surface_kiosk"
+            onChange={(event) => setEventPrefix(event.target.value)}
+          />
+        </label>
+
+        <label>
+          <span>Bridge source</span>
+          <select
+            value={preferredSourceKind}
+            onChange={(event) =>
+              setPreferredSourceKind(event.target.value as "Infrared" | "Color")
+            }
+          >
+            <option value="Color">Color</option>
+            <option value="Infrared">Infrared</option>
+          </select>
+        </label>
+      </div>
+
+      <div className="toggle-grid">
+        <label>
+          <input
+            type="checkbox"
+            checked={cameraEnabled}
+            onChange={(event) => setCameraEnabled(event.target.checked)}
+          />
+          <span>Browser camera</span>
+        </label>
+        <label>
+          <input
+            type="checkbox"
+            checked={bridgeEnabled}
+            onChange={(event) => setBridgeEnabled(event.target.checked)}
+          />
+          <span>Surface camera bridge</span>
+        </label>
+        <label>
+          <input
+            type="checkbox"
+            checked={faceEnabled}
+            onChange={(event) => setFaceEnabled(event.target.checked)}
+          />
+          <span>Face recognition</span>
+        </label>
+      </div>
+
+      {message ? (
+        <p className={`setup-message ${testStatus === "error" ? "error" : ""}`}>
+          {message}
+        </p>
+      ) : null}
+
+      <div className="panel-actions">
+        <button type="button" className="secondary-action" onClick={testHomeAssistant}>
+          {testStatus === "testing" ? <Loader2 size={18} /> : <PlugZap size={18} />}
+          <span>Test</span>
+        </button>
+        <button type="button" className="save-action" onClick={save}>
+          {testStatus === "ok" ? <Check size={18} /> : <Save size={18} />}
+          <span>Save</span>
+        </button>
+      </div>
+    </aside>
+  );
+}

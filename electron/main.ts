@@ -6,6 +6,8 @@ import { fileURLToPath } from "node:url";
 type HomeAssistantConfig = {
   baseUrl?: string;
   accessToken?: string;
+  dashboardUrl?: string;
+  eventPrefix?: string;
 };
 
 type KioskConfig = {
@@ -79,6 +81,23 @@ async function readConfig() {
   };
 }
 
+async function writeConfig(_event: unknown, config: KioskConfig) {
+  const nextConfig = {
+    ...config,
+    runtime: undefined,
+  };
+  await fs.mkdir(path.dirname(userConfigPath()), { recursive: true });
+  await fs.writeFile(userConfigPath(), JSON.stringify(nextConfig, null, 2), "utf8");
+  loadedConfig = nextConfig;
+  return {
+    ...nextConfig,
+    runtime: {
+      configPath: userConfigPath(),
+      userConfigPath: userConfigPath(),
+    },
+  };
+}
+
 function haConfig() {
   const homeAssistant = loadedConfig.homeAssistant ?? {};
   const baseUrl = homeAssistant.baseUrl?.replace(/\/$/, "");
@@ -89,6 +108,36 @@ function haConfig() {
   }
 
   return { baseUrl, accessToken };
+}
+
+function haConfigFrom(config: KioskConfig) {
+  const homeAssistant = config.homeAssistant ?? {};
+  const baseUrl = homeAssistant.baseUrl?.replace(/\/$/, "");
+  const accessToken = homeAssistant.accessToken;
+
+  if (!baseUrl || !accessToken) {
+    throw new Error("Home Assistant URL/token is not configured.");
+  }
+
+  return { baseUrl, accessToken };
+}
+
+async function getHomeAssistant(config: KioskConfig) {
+  const { baseUrl, accessToken } = haConfigFrom(config);
+  const response = await fetch(`${baseUrl}/api/`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Home Assistant ${response.status}: ${text}`);
+  }
+
+  const body = await response.text();
+  return body ? JSON.parse(body) : { ok: true };
 }
 
 async function postHomeAssistant(pathname: string, payload: unknown) {
@@ -144,6 +193,10 @@ function createWindow() {
 
 app.whenReady().then(() => {
   ipcMain.handle("config:read", readConfig);
+  ipcMain.handle("config:write", writeConfig);
+  ipcMain.handle("ha:test", (_event, config: KioskConfig) =>
+    getHomeAssistant(config),
+  );
   ipcMain.handle("ha:fire-event", async (_event, eventType: string, payload) =>
     postHomeAssistant(`/api/events/${encodeURIComponent(eventType)}`, payload),
   );

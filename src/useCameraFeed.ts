@@ -10,6 +10,7 @@ export type CameraStatus =
 export function useCameraFeed(enabled: boolean, width: number, height: number) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const [stream, setStream] = useState<MediaStream | null>(null);
   const [status, setStatus] = useState<CameraStatus>(enabled ? "starting" : "disabled");
 
   useEffect(() => {
@@ -43,6 +44,7 @@ export function useCameraFeed(enabled: boolean, width: number, height: number) {
         }
 
         streamRef.current = stream;
+        setStream(stream);
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
           await videoRef.current.play();
@@ -61,8 +63,9 @@ export function useCameraFeed(enabled: boolean, width: number, height: number) {
       cancelled = true;
       streamRef.current?.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
+      setStream(null);
     };
   }, [enabled, height, width]);
 
-  return { videoRef, status };
+  return { videoRef, status, stream };
 }

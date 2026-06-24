@@ -127,12 +127,12 @@ export function useFaceRecognition(
       let input: HTMLVideoElement | HTMLImageElement | null = null;
       let inputWidth = 1;
 
-      if (bridgeFrameDataUrl) {
-        input = await faceapi.fetchImage(bridgeFrameDataUrl);
-        inputWidth = input.naturalWidth;
-      } else if (video && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+      if (video && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
         input = video;
         inputWidth = video.videoWidth;
+      } else if (bridgeFrameDataUrl) {
+        input = await faceapi.fetchImage(bridgeFrameDataUrl);
+        inputWidth = input.naturalWidth;
       }
 
       if (!input) return;

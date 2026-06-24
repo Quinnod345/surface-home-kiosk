@@ -4,6 +4,8 @@ declare global {
   interface Window {
     surfaceKiosk?: {
       readConfig: () => Promise<KioskConfig>;
+      saveConfig: (config: KioskConfig) => Promise<KioskConfig>;
+      testHomeAssistant: (config: Pick<KioskConfig, "homeAssistant">) => Promise<unknown>;
       fireHomeAssistantEvent: (
         eventType: string,
         payload: unknown,

@@ -1,5 +1,5 @@
 import { Camera, Check, Loader2, UserPlus, X } from "lucide-react";
-import { useMemo, useState } from "react";
+import { CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import type { KioskConfig } from "./config";
 import {
   descriptorToArray,
@@ -7,18 +7,33 @@ import {
   saveEnrolledPerson,
 } from "./enrollmentStore";
 import {
+  analyzeFaceImageUrl,
+  analyzeFaceInput,
   captureDescriptor,
   captureDescriptorFromImageUrl,
-  loadFaceApi,
+  type FaceQuality,
 } from "./faceApiRuntime";
 
 type EnrollmentPanelProps = {
   config: KioskConfig;
+  stream: MediaStream | null;
   video: HTMLVideoElement | null;
   bridgeFrameDataUrl?: string | null;
   onClose: () => void;
   onSaved: (people: EnrolledPerson[]) => void;
 };
+
+type CaptureSample = {
+  descriptor: number[];
+  prompt: string;
+  capturedAt: string;
+};
+
+const samplePrompts = [
+  "Look straight at the tablet.",
+  "Turn slightly left.",
+  "Turn slightly right.",
+];
 
 function slugify(value: string) {
   return value
@@ -28,19 +43,34 @@ function slugify(value: string) {
     .replace(/(^-|-$)/g, "");
 }
 
+function friendlyError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/failed to fetch|load.*model|fetch/i.test(message)) {
+    return "Face models could not load. Re-run setup or check that the models folder exists.";
+  }
+  return message || "Could not capture a face sample.";
+}
+
+function sampleLabel(index: number) {
+  return samplePrompts[index] ?? "Capture one more natural angle.";
+}
+
 export function EnrollmentPanel({
   config,
+  stream,
   video,
   bridgeFrameDataUrl,
   onClose,
   onSaved,
 }: EnrollmentPanelProps) {
+  const previewVideoRef = useRef<HTMLVideoElement | null>(null);
   const [displayName, setDisplayName] = useState("");
   const [personId, setPersonId] = useState("");
   const [dashboardPath, setDashboardPath] = useState("");
-  const [samples, setSamples] = useState<number[][]>([]);
+  const [samples, setSamples] = useState<CaptureSample[]>([]);
+  const [quality, setQuality] = useState<FaceQuality | null>(null);
   const [status, setStatus] = useState<"idle" | "loading" | "capturing" | "saved">(
-    "idle",
+    "loading",
   );
   const [error, setError] = useState<string | null>(null);
 
@@ -48,32 +78,119 @@ export function EnrollmentPanel({
     () => slugify(personId || displayName),
     [displayName, personId],
   );
+  const hasVideoPreview = Boolean(stream);
+  const sourceReady = Boolean(stream || bridgeFrameDataUrl || video);
+  const nextPrompt = sampleLabel(samples.length);
   const canCapture = Boolean(
-    (video || bridgeFrameDataUrl) && resolvedId && displayName.trim(),
+    sourceReady &&
+      resolvedId &&
+      displayName.trim() &&
+      quality?.canCapture &&
+      status !== "capturing",
   );
-  const canSave = canCapture && samples.length >= 3;
+  const canSave = Boolean(resolvedId && displayName.trim() && samples.length >= 3);
+
+  useEffect(() => {
+    const preview = previewVideoRef.current;
+    if (!preview || !stream) return;
+
+    preview.srcObject = stream;
+    void preview.play().catch(() => undefined);
+    return () => {
+      preview.srcObject = null;
+    };
+  }, [stream]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let running = false;
+
+    async function analyze() {
+      if (running) return;
+      running = true;
+      try {
+        const preview = previewVideoRef.current;
+        const input =
+          preview && preview.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
+            ? preview
+            : video && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
+              ? video
+              : null;
+
+        if (input) {
+          const next = await analyzeFaceInput(input, config);
+          if (!cancelled) {
+            setQuality(next);
+            setStatus("idle");
+            setError(null);
+          }
+          return;
+        }
+
+        if (bridgeFrameDataUrl) {
+          const next = await analyzeFaceImageUrl(bridgeFrameDataUrl, config);
+          if (!cancelled) {
+            setQuality(next);
+            setStatus("idle");
+            setError(null);
+          }
+          return;
+        }
+
+        if (!cancelled) {
+          setQuality(null);
+          setStatus("idle");
+        }
+      } catch (analysisError) {
+        if (!cancelled) {
+          setStatus("idle");
+          setError(friendlyError(analysisError));
+        }
+      } finally {
+        running = false;
+      }
+    }
+
+    void analyze();
+    const interval = window.setInterval(analyze, 900);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [bridgeFrameDataUrl, config, stream, video]);
 
   async function captureSample() {
-    if (!video && !bridgeFrameDataUrl) return;
+    if (!sourceReady || !quality?.canCapture) return;
 
     setError(null);
     setStatus("capturing");
     try {
-      await loadFaceApi(config.faceRecognition.modelUrl);
-      const detection = bridgeFrameDataUrl
-        ? await captureDescriptorFromImageUrl(bridgeFrameDataUrl, config)
-        : await captureDescriptor(video!, config);
-      if (!detection?.descriptor) {
-        setError("No face found. Face the tablet and try another sample.");
+      const descriptor =
+        quality.descriptor ??
+        (previewVideoRef.current
+          ? (await captureDescriptor(previewVideoRef.current, config))?.descriptor
+          : bridgeFrameDataUrl
+            ? (await captureDescriptorFromImageUrl(bridgeFrameDataUrl, config))
+                ?.descriptor
+            : video
+              ? (await captureDescriptor(video, config))?.descriptor
+              : null);
+
+      if (!descriptor) {
+        setError("No usable face found. Match the guide and try again.");
         return;
       }
-      setSamples((current) => [...current, descriptorToArray(detection.descriptor)]);
+
+      setSamples((current) => [
+        ...current,
+        {
+          descriptor: descriptorToArray(descriptor),
+          prompt: nextPrompt,
+          capturedAt: new Date().toISOString(),
+        },
+      ]);
     } catch (captureError) {
-      setError(
-        captureError instanceof Error
-          ? captureError.message
-          : "Could not capture a face sample.",
-      );
+      setError(friendlyError(captureError));
     } finally {
       setStatus("idle");
     }
@@ -87,7 +204,7 @@ export function EnrollmentPanel({
       id: resolvedId,
       displayName: displayName.trim(),
       dashboardPath: dashboardPath.trim() || undefined,
-      faceDescriptors: samples,
+      faceDescriptors: samples.map((sample) => sample.descriptor),
       enrolledAt: now,
       updatedAt: now,
     });
@@ -95,9 +212,22 @@ export function EnrollmentPanel({
     onSaved(next.people);
   }
 
+  const boxStyle = useMemo<CSSProperties | undefined>(() => {
+    if (!quality?.box) return undefined;
+    const left = hasVideoPreview
+      ? 1 - quality.box.x - quality.box.width
+      : quality.box.x;
+    return {
+      left: `${left * 100}%`,
+      top: `${quality.box.y * 100}%`,
+      width: `${quality.box.width * 100}%`,
+      height: `${quality.box.height * 100}%`,
+    };
+  }, [hasVideoPreview, quality?.box]);
+
   return (
     <aside
-      className="enrollment-panel"
+      className="enrollment-panel guided"
       aria-label="Face enrollment"
       onPointerDown={(event) => event.stopPropagation()}
     >
@@ -109,6 +239,50 @@ export function EnrollmentPanel({
         <button type="button" aria-label="Close enrollment" onClick={onClose}>
           <X size={18} />
         </button>
+      </div>
+
+      <div className="enrollment-layout">
+        <div className="face-preview">
+          {stream ? (
+            <video
+              ref={previewVideoRef}
+              className="enrollment-video"
+              muted
+              playsInline
+            />
+          ) : bridgeFrameDataUrl ? (
+            <img src={bridgeFrameDataUrl} alt="" draggable={false} />
+          ) : (
+            <div className="preview-empty">Camera starting</div>
+          )}
+          <div className="face-guide" />
+          {boxStyle ? (
+            <div
+              className={`face-box ${quality?.canCapture ? "good" : ""}`}
+              style={boxStyle}
+            />
+          ) : null}
+        </div>
+
+        <div className="enrollment-instructions">
+          <strong>{quality?.guidance ?? "Waiting for camera."}</strong>
+          <span>{nextPrompt}</span>
+          <div className="quality-list">
+            {(quality?.checks ?? [
+              {
+                label: "Camera",
+                ok: sourceReady,
+                detail: sourceReady ? "Ready." : "Waiting for a camera frame.",
+              },
+            ]).map((check) => (
+              <div className={check.ok ? "quality-ok" : ""} key={check.label}>
+                <Check size={14} />
+                <span>{check.label}</span>
+                <small>{check.detail}</small>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
 
       <div className="enrollment-grid">
@@ -131,7 +305,7 @@ export function EnrollmentPanel({
         </label>
 
         <label className="wide">
-          <span>Dashboard path</span>
+          <span>Personal dashboard path</span>
           <input
             value={dashboardPath}
             placeholder="/lovelace/quinn?kiosk"
@@ -144,22 +318,38 @@ export function EnrollmentPanel({
         <button
           type="button"
           className="primary-action"
-          disabled={!canCapture || status === "capturing" || status === "loading"}
+          disabled={!canCapture}
           onClick={captureSample}
         >
-          {status === "capturing" ? <Loader2 size={18} /> : <Camera size={18} />}
+          {status === "capturing" || status === "loading" ? (
+            <Loader2 size={18} />
+          ) : (
+            <Camera size={18} />
+          )}
           <span>Capture sample</span>
         </button>
         <div className="sample-count">
-          <strong>{samples.length}</strong>
+          <strong>{samples.length}/3</strong>
           <span>samples</span>
         </div>
+      </div>
+
+      <div className="sample-progress" aria-label="Enrollment samples">
+        {samplePrompts.map((prompt, index) => (
+          <div
+            className={samples[index] ? "complete" : index === samples.length ? "next" : ""}
+            key={prompt}
+          >
+            <Check size={14} />
+            <span>{prompt}</span>
+          </div>
+        ))}
       </div>
 
       {error ? <p className="enrollment-error">{error}</p> : null}
 
       <div className="enrollment-footer">
-        <span>Capture at least 3 angles with consent.</span>
+        <span>Embeddings stay local in this kiosk profile.</span>
         <button
           type="button"
           className="save-action"
