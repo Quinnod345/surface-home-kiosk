@@ -19,6 +19,7 @@ import {
   type KioskConfig,
   type PersonProfile,
 } from "./config";
+import { resolveKioskAssetUrl } from "./assetUrl";
 import { EnrollmentPanel } from "./EnrollmentPanel";
 import {
   loadEnrollments,
@@ -303,7 +304,7 @@ export default function App() {
         ) : (
           <img
             className="idle-photo"
-            src={currentPhoto}
+            src={resolveKioskAssetUrl(currentPhoto)}
             alt=""
             draggable={false}
           />

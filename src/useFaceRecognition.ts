@@ -1,4 +1,5 @@
 import { RefObject, useEffect, useMemo, useRef, useState } from "react";
+import { resolveKioskAssetUrl } from "./assetUrl";
 import type { KioskConfig, PersonProfile } from "./config";
 import {
   imageDescriptor,
@@ -70,7 +71,10 @@ export function useFaceRecognition(
             (descriptor) => new Float32Array(descriptor),
           );
           for (const url of person.referenceImageUrls ?? []) {
-            const detection = await imageDescriptor(faceapi, url);
+            const detection = await imageDescriptor(
+              faceapi,
+              resolveKioskAssetUrl(url),
+            );
             if (detection?.descriptor) descriptors.push(detection.descriptor);
           }
 
