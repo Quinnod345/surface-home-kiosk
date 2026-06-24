@@ -1,6 +1,8 @@
 import { app, BrowserWindow, ipcMain, net, protocol, session } from "electron";
+import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { promisify } from "node:util";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 type HomeAssistantConfig = {
@@ -8,6 +10,7 @@ type HomeAssistantConfig = {
   accessToken?: string;
   dashboardUrl?: string;
   eventPrefix?: string;
+  allowSelfSignedCertificate?: boolean;
 };
 
 type KioskConfig = {
@@ -29,9 +32,11 @@ type KioskStateDb = {
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const execFileAsync = promisify(execFile);
 
 let mainWindow: BrowserWindow | null = null;
 let loadedConfig: KioskConfig = {};
+const trustedHomeAssistantHosts = new Set<string>();
 
 app.setName("Surface Home Kiosk");
 app.setPath("userData", path.join(app.getPath("appData"), "SurfaceHomeKiosk"));
@@ -243,6 +248,7 @@ function haConfig() {
     throw new Error("Home Assistant baseUrl/accessToken is not configured.");
   }
 
+  rememberHomeAssistantCertificateHost(loadedConfig);
   return { baseUrl, accessToken };
 }
 
@@ -255,6 +261,7 @@ function haConfigFrom(config: KioskConfig) {
     throw new Error("Home Assistant URL/token is not configured.");
   }
 
+  rememberHomeAssistantCertificateHost(config);
   return { baseUrl, accessToken };
 }
 
@@ -290,6 +297,47 @@ function configuredHomeAssistantOrigins(config: KioskConfig = loadedConfig) {
   }
 
   return origins;
+}
+
+function configuredHomeAssistantHosts(config: KioskConfig = loadedConfig) {
+  const homeAssistant = config.homeAssistant ?? {};
+  const hosts = new Set<string>();
+  const baseUrl = normalizeHomeAssistantUrl(homeAssistant.baseUrl);
+
+  for (const value of [baseUrl, homeAssistant.dashboardUrl]) {
+    if (!value) continue;
+
+    try {
+      hosts.add(new URL(value, baseUrl).hostname.toLowerCase());
+    } catch {
+      // Invalid setup values are reported through the setup/test UI.
+    }
+  }
+
+  return hosts;
+}
+
+function rememberHomeAssistantCertificateHost(config: KioskConfig) {
+  const homeAssistant = config.homeAssistant ?? {};
+  if (homeAssistant.allowSelfSignedCertificate === false) return;
+
+  for (const host of configuredHomeAssistantHosts(config)) {
+    trustedHomeAssistantHosts.add(host);
+  }
+}
+
+function allowConfiguredHomeAssistantCertificates() {
+  session.defaultSession.setCertificateVerifyProc((request, callback) => {
+    const host = request.hostname.toLowerCase();
+    const configuredHosts = configuredHomeAssistantHosts();
+
+    if (configuredHosts.has(host) || trustedHomeAssistantHosts.has(host)) {
+      callback(0);
+      return;
+    }
+
+    callback(-3);
+  });
 }
 
 function deleteHeader(headers: Record<string, string[]> | undefined, headerName: string) {
@@ -357,7 +405,7 @@ async function getHomeAssistant(config: KioskConfig) {
   let response: Response;
 
   try {
-    response = await fetch(`${baseUrl}/api/`, {
+    response = await net.fetch(`${baseUrl}/api/`, {
       signal: AbortSignal.timeout(8000),
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -379,8 +427,9 @@ async function getHomeAssistant(config: KioskConfig) {
 
 async function postHomeAssistant(pathname: string, payload: unknown) {
   const { baseUrl, accessToken } = haConfig();
-  const response = await fetch(`${baseUrl}${pathname}`, {
+  const response = await net.fetch(`${baseUrl}${pathname}`, {
     method: "POST",
+    signal: AbortSignal.timeout(10000),
     headers: {
       Authorization: `Bearer ${accessToken}`,
       "Content-Type": "application/json",
@@ -395,6 +444,89 @@ async function postHomeAssistant(pathname: string, payload: unknown) {
 
   const body = await response.text();
   return body ? JSON.parse(body) : null;
+}
+
+async function getHomeAssistantJson(pathname: string) {
+  const { baseUrl, accessToken } = haConfig();
+  let response: Response;
+
+  try {
+    response = await net.fetch(`${baseUrl}${pathname}`, {
+      signal: AbortSignal.timeout(10000),
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: "application/json",
+      },
+    });
+  } catch (error) {
+    throw homeAssistantFetchError(baseUrl, error);
+  }
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Home Assistant ${response.status}: ${text}`);
+  }
+
+  const body = await response.text();
+  return body ? JSON.parse(body) : null;
+}
+
+async function getHomeAssistantCameraSnapshot(entityId: string) {
+  const { baseUrl, accessToken } = haConfig();
+  let response: Response;
+
+  try {
+    response = await net.fetch(
+      `${baseUrl}/api/camera_proxy/${encodeURIComponent(entityId)}`,
+      {
+        signal: AbortSignal.timeout(10000),
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: "image/*",
+        },
+      },
+    );
+  } catch (error) {
+    throw homeAssistantFetchError(baseUrl, error);
+  }
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Home Assistant camera ${response.status}: ${text}`);
+  }
+
+  const contentType = response.headers.get("content-type") ?? "image/jpeg";
+  const bytes = Buffer.from(await response.arrayBuffer());
+  return {
+    entityId,
+    contentType,
+    dataUrl: `data:${contentType};base64,${bytes.toString("base64")}`,
+    at: new Date().toISOString(),
+  };
+}
+
+async function setWindowsDisplayPower(enabled: boolean) {
+  if (process.platform !== "win32") {
+    return { ok: false, skipped: true, reason: "Display power control is Windows-only." };
+  }
+
+  const monitorPowerState = enabled ? -1 : 2;
+  const script = [
+    '$signature = @\'',
+    '[DllImport("user32.dll")]',
+    "public static extern IntPtr SendMessage(IntPtr hWnd, int Msg, IntPtr wParam, IntPtr lParam);",
+    "'@",
+    "Add-Type -MemberDefinition $signature -Name NativeMethods -Namespace Win32",
+    `[Win32.NativeMethods]::SendMessage([intptr]0xffff, 0x0112, [intptr]0xF170, [intptr]${monitorPowerState}) | Out-Null`,
+  ].join("\n");
+
+  await execFileAsync(
+    "powershell.exe",
+    ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
+    { timeout: 5000, windowsHide: true },
+  );
+
+  return { ok: true, enabled };
 }
 
 function distAssetPath(requestUrl: string) {
@@ -460,6 +592,7 @@ function createWindow() {
 
 app.whenReady().then(() => {
   registerKioskProtocol();
+  allowConfiguredHomeAssistantCertificates();
   relaxHomeAssistantFrameHeaders();
 
   ipcMain.handle("config:read", readConfig);
@@ -481,10 +614,20 @@ app.whenReady().then(() => {
         payload,
       ),
   );
+  ipcMain.handle("ha:get-states", () => getHomeAssistantJson("/api/states"));
+  ipcMain.handle("ha:get-state", (_event, entityId: string) =>
+    getHomeAssistantJson(`/api/states/${encodeURIComponent(entityId)}`),
+  );
+  ipcMain.handle("ha:get-camera-snapshot", (_event, entityId: string) =>
+    getHomeAssistantCameraSnapshot(entityId),
+  );
   ipcMain.handle("window:kiosk", (_event, enabled: boolean) => {
     mainWindow?.setKiosk(enabled);
     mainWindow?.setFullScreen(enabled);
   });
+  ipcMain.handle("window:display-power", (_event, enabled: boolean) =>
+    setWindowsDisplayPower(enabled),
+  );
   ipcMain.handle("window:reload", () => mainWindow?.webContents.reload());
 
   createWindow();

@@ -23,7 +23,16 @@ declare global {
         service: string,
         payload: unknown,
       ) => Promise<unknown>;
+      getHomeAssistantStates: () => Promise<unknown>;
+      getHomeAssistantState: (entityId: string) => Promise<unknown>;
+      getHomeAssistantCameraSnapshot: (entityId: string) => Promise<{
+        entityId: string;
+        contentType: string;
+        dataUrl: string;
+        at: string;
+      }>;
       setKioskMode: (enabled: boolean) => Promise<void>;
+      setDisplayPower: (enabled: boolean) => Promise<unknown>;
       reload: () => Promise<void>;
     };
   }

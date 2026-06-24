@@ -13,7 +13,6 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  dashboardUrlFor,
   type DashboardMode,
   defaultConfig,
   loadKioskConfig,
@@ -21,8 +20,13 @@ import {
   type PersonProfile,
 } from "./config";
 import { resolveKioskAssetUrl } from "./assetUrl";
+import {
+  CameraAlertOverlay,
+  type CameraAlert,
+} from "./CameraAlertOverlay";
 import { EnrollmentPanel } from "./EnrollmentPanel";
 import { checkFaceModelFiles, loadFaceApi } from "./faceApiRuntime";
+import { HomeCenterDashboard } from "./HomeCenterDashboard";
 import { SetupPanel } from "./SetupPanel";
 import {
   loadEnrollments,
@@ -30,7 +34,10 @@ import {
   type EnrolledPerson,
 } from "./enrollmentStore";
 import {
+  callHomeAssistantService,
   fireKioskEvent,
+  friendlyStateName,
+  type HaState,
   kioskPayload,
   setHomeAssistantText,
 } from "./homeAssistant";
@@ -39,6 +46,7 @@ import {
   useFaceRecognition,
   type FaceRecognitionStatus,
 } from "./useFaceRecognition";
+import { useHomeAssistantStates } from "./useHomeAssistantStates";
 import { useMotionPresence } from "./useMotionPresence";
 import { useNativeBridgeFrames } from "./useNativeBridgeFrames";
 
@@ -84,6 +92,183 @@ function faceStatusLabel(status: FaceRecognitionStatus, peopleCount: number) {
   return status;
 }
 
+function entityDomain(entityId: string) {
+  return entityId.split(".")[0] ?? "";
+}
+
+function entitySearchText(state: HaState) {
+  return `${state.entity_id} ${friendlyStateName(state)}`.toLowerCase();
+}
+
+function isAvailableHaState(state: HaState) {
+  return state.state !== "unavailable" && state.state !== "unknown";
+}
+
+function isCameraTriggerCandidate(state: HaState) {
+  if (entityDomain(state.entity_id) !== "binary_sensor") return false;
+  if (state.state !== "on") return false;
+
+  const text = entitySearchText(state);
+  const deviceClass = state.attributes?.device_class;
+  const deviceClassText = typeof deviceClass === "string" ? deviceClass : "";
+  const cameraPlace = /(doorbell|driveway|front|side|backyard|yard|porch|entry|entrance)/;
+  const cameraSignal = /(person|motion|visitor|ding|detected|occupancy|presence)/;
+
+  return (
+    (["motion", "occupancy", "presence"].includes(deviceClassText) &&
+      cameraPlace.test(text)) ||
+    (cameraSignal.test(text) && cameraPlace.test(text)) ||
+    /person_detected|motion_detected|doorbell/.test(text)
+  );
+}
+
+function configuredCameraBinding(config: KioskConfig, triggerEntityId: string) {
+  return config.cameraOverlay.cameraBindings.find(
+    (binding) => binding.triggerEntityId === triggerEntityId,
+  )?.cameraEntityId;
+}
+
+function entityTokens(entityId: string) {
+  return new Set(
+    entityId
+      .replace(/^[^.]+\./, "")
+      .split(/[_\W]+/)
+      .filter((token) => token.length > 1 && !["camera", "binary", "sensor"].includes(token)),
+  );
+}
+
+function bestCameraForTrigger(
+  trigger: HaState,
+  states: HaState[],
+  config: KioskConfig,
+) {
+  const configured = configuredCameraBinding(config, trigger.entity_id);
+  if (configured) {
+    const configuredState = states.find((state) => state.entity_id === configured);
+    if (configuredState) return configuredState;
+    return {
+      entity_id: configured,
+      state: "unknown",
+      attributes: { friendly_name: configured.replace(/^camera\./, "").replace(/_/g, " ") },
+    };
+  }
+
+  const cameras = states.filter(
+    (state) => entityDomain(state.entity_id) === "camera" && isAvailableHaState(state),
+  );
+  const triggerTokens = entityTokens(trigger.entity_id);
+  let best: { state: HaState; score: number } | null = null;
+
+  for (const camera of cameras) {
+    const cameraTokens = entityTokens(camera.entity_id);
+    let score = 0;
+    for (const token of cameraTokens) {
+      if (triggerTokens.has(token)) score += 1;
+    }
+    if (entitySearchText(trigger).includes(friendlyStateName(camera).toLowerCase())) {
+      score += 2;
+    }
+    if (!best || score > best.score) best = { state: camera, score };
+  }
+
+  if (best && best.score > 0) return best.state;
+
+  if (config.cameraOverlay.defaultCameraEntityId) {
+    const defaultState = states.find(
+      (state) => state.entity_id === config.cameraOverlay.defaultCameraEntityId,
+    );
+    if (defaultState) return defaultState;
+    return {
+      entity_id: config.cameraOverlay.defaultCameraEntityId,
+      state: "unknown",
+      attributes: {
+        friendly_name: config.cameraOverlay.defaultCameraEntityId
+          .replace(/^camera\./, "")
+          .replace(/_/g, " "),
+      },
+    };
+  }
+
+  return cameras[0] ?? null;
+}
+
+function activeCameraTrigger(states: HaState[], config: KioskConfig) {
+  const explicitIds = new Set(config.cameraOverlay.triggerEntityIds);
+
+  return states.find((state) => {
+    if (!isAvailableHaState(state)) return false;
+    if (explicitIds.size > 0) {
+      return explicitIds.has(state.entity_id) && state.state === "on";
+    }
+    return isCameraTriggerCandidate(state);
+  });
+}
+
+function timeToMinutes(value: string) {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(value.trim());
+  if (!match) return null;
+
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
+  return hours * 60 + minutes;
+}
+
+function isWithinQuietHours(now: Date, startValue: string, endValue: string) {
+  const start = timeToMinutes(startValue);
+  const end = timeToMinutes(endValue);
+  if (start === null || end === null || start === end) return false;
+
+  const current = now.getHours() * 60 + now.getMinutes();
+  if (start < end) return current >= start && current < end;
+  return current >= start || current < end;
+}
+
+function haStateNumber(state: HaState | undefined) {
+  if (!state) return null;
+  const direct = Number(state.state);
+  if (Number.isFinite(direct)) return direct;
+
+  const measurement = state.attributes?.measurement;
+  if (typeof measurement === "number" && Number.isFinite(measurement)) return measurement;
+  if (typeof measurement === "string" && Number.isFinite(Number(measurement))) {
+    return Number(measurement);
+  }
+
+  return null;
+}
+
+function isAmbientDark(states: HaState[], config: KioskConfig) {
+  const entityId = config.screenPower.ambientLightEntityId;
+  if (!entityId) return false;
+
+  const value = haStateNumber(states.find((state) => state.entity_id === entityId));
+  return value !== null && value <= config.screenPower.ambientLightThresholdLux;
+}
+
+function shouldUseDeepSleep(states: HaState[], config: KioskConfig, now: Date) {
+  const quiet = isWithinQuietHours(
+    now,
+    config.screenPower.quietHoursStart,
+    config.screenPower.quietHoursEnd,
+  );
+  const dark = isAmbientDark(states, config);
+
+  switch (config.screenPower.deepSleepCondition) {
+    case "never":
+      return false;
+    case "quiet-hours":
+      return quiet;
+    case "ambient-dark":
+      return dark;
+    case "both":
+      return quiet && dark;
+    case "either":
+    default:
+      return quiet || dark;
+  }
+}
+
 export default function App() {
   const [config, setConfig] = useState<KioskConfig>(defaultConfig);
   const [configLoaded, setConfigLoaded] = useState(false);
@@ -96,6 +281,11 @@ export default function App() {
   const [showSetup, setShowSetup] = useState(false);
   const [showTestPanel, setShowTestPanel] = useState(false);
   const [enrolledPeople, setEnrolledPeople] = useState<EnrolledPerson[]>([]);
+  const [controlsVisible, setControlsVisible] = useState(false);
+  const [cameraAlert, setCameraAlert] = useState<CameraAlert | null>(null);
+  const [screenPowerMode, setScreenPowerMode] = useState<
+    "awake" | "dim" | "blackout"
+  >("awake");
   const [haStatus, setHaStatus] = useState<"idle" | "ok" | "error">("idle");
   const [haError, setHaError] = useState<string | null>(null);
   const [modelTestStatus, setModelTestStatus] = useState<
@@ -103,9 +293,13 @@ export default function App() {
   >("idle");
   const [modelTestMessage, setModelTestMessage] = useState<string | null>(null);
   const lastInteractionAtRef = useRef(Date.now());
+  const lastFaceSeenAtRef = useRef<number | null>(null);
   const lastGreetedRef = useRef<Record<string, number>>({});
   const lastOccupancyRef = useRef(false);
   const openedFirstRunRef = useRef(false);
+  const controlsTimerRef = useRef<number | null>(null);
+  const dismissedCameraAlertRef = useRef<string | null>(null);
+  const displayPowerOffRef = useRef(false);
 
   const effectiveConfig = useMemo<KioskConfig>(
     () => ({
@@ -143,13 +337,14 @@ export default function App() {
       effectiveConfig.people.find((person) => person.id === activePersonId) ?? null,
     [activePersonId, effectiveConfig.people],
   );
-  const dashboardUrl = useMemo(
-    () => dashboardUrlFor(effectiveConfig, activePersonId),
-    [activePersonId, effectiveConfig],
-  );
   const homeAssistantConfigured = useMemo(
     () => hasHomeAssistantConfig(effectiveConfig),
     [effectiveConfig],
+  );
+  const homeAssistant = useHomeAssistantStates(
+    effectiveConfig,
+    homeAssistantConfigured,
+    5000,
   );
   const homeAssistantSetupNeeded = configLoaded && !homeAssistantConfigured;
   const cameraSetupNeeded =
@@ -180,9 +375,50 @@ export default function App() {
     [effectiveConfig],
   );
 
+  const callService = useCallback(
+    async (domain: string, service: string, payload: Record<string, unknown>) => {
+      const result = await callHomeAssistantService(
+        effectiveConfig,
+        domain,
+        service,
+        payload,
+      );
+      if (result.ok) {
+        setHaStatus("ok");
+        setHaError(null);
+        void homeAssistant.refresh();
+      } else {
+        setHaStatus("error");
+        setHaError(result.error);
+      }
+    },
+    [effectiveConfig, homeAssistant],
+  );
+
+  const wakeScreen = useCallback(() => {
+    setScreenPowerMode("awake");
+    if (displayPowerOffRef.current) {
+      displayPowerOffRef.current = false;
+      void window.surfaceKiosk?.setDisplayPower(true);
+    }
+  }, []);
+
+  const revealControls = useCallback(() => {
+    wakeScreen();
+    setControlsVisible(true);
+    if (controlsTimerRef.current) {
+      window.clearTimeout(controlsTimerRef.current);
+    }
+    controlsTimerRef.current = window.setTimeout(() => {
+      setControlsVisible(false);
+      controlsTimerRef.current = null;
+    }, 7000);
+  }, [wakeScreen]);
+
   const enterDashboard = useCallback(
     (reason: string, person?: PersonProfile | null) => {
       lastInteractionAtRef.current = Date.now();
+      wakeScreen();
       if (person) setActivePersonId(person.id);
       if (configLoaded && !homeAssistantConfigured) {
         setMode("idle");
@@ -201,6 +437,7 @@ export default function App() {
       effectiveConfig,
       homeAssistantConfigured,
       sendEvent,
+      wakeScreen,
     ],
   );
 
@@ -217,6 +454,7 @@ export default function App() {
 
   const recordInteraction = useCallback(() => {
     lastInteractionAtRef.current = Date.now();
+    wakeScreen();
     if (mode === "idle" && effectiveConfig.behavior.openDashboardOnTap) {
       enterDashboard("touch", activePerson);
     }
@@ -225,6 +463,7 @@ export default function App() {
     effectiveConfig.behavior.openDashboardOnTap,
     enterDashboard,
     mode,
+    wakeScreen,
   ]);
 
   useEffect(() => {
@@ -268,21 +507,81 @@ export default function App() {
 
   useEffect(() => {
     const interval = window.setInterval(() => {
+      if (cameraAlert) {
+        wakeScreen();
+        return;
+      }
+
+      const lastFaceSeenAt = lastFaceSeenAtRef.current;
+      const noFaceFor = lastFaceSeenAt ? Date.now() - lastFaceSeenAt : Number.POSITIVE_INFINITY;
+      const interactionIdleFor = Date.now() - lastInteractionAtRef.current;
+      const screenIdleFor = Math.min(noFaceFor, interactionIdleFor);
+      const shouldDim =
+        effectiveConfig.screenPower.enabled &&
+        screenIdleFor > effectiveConfig.screenPower.dimAfterMs;
+      const shouldDeepSleepNow =
+        shouldDim &&
+        screenIdleFor > effectiveConfig.screenPower.deepSleepAfterMs &&
+        shouldUseDeepSleep(homeAssistant.states, effectiveConfig, new Date());
+
+      if (!shouldDim) {
+        wakeScreen();
+      } else if (shouldDeepSleepNow) {
+        if (effectiveConfig.screenPower.deepSleepAction === "blackout") {
+          setScreenPowerMode("blackout");
+          if (
+            effectiveConfig.screenPower.useWindowsDisplayPower &&
+            !displayPowerOffRef.current
+          ) {
+            displayPowerOffRef.current = true;
+            void window.surfaceKiosk?.setDisplayPower(false);
+          }
+        } else {
+          setScreenPowerMode("dim");
+          if (effectiveConfig.screenPower.deepSleepAction === "photos" && mode !== "idle") {
+            returnToPhotos("screen-power");
+          }
+        }
+      } else {
+        setScreenPowerMode("dim");
+      }
+
+      if (
+        activePersonId &&
+        noFaceFor > effectiveConfig.behavior.faceResetMs
+      ) {
+        setActivePersonId(null);
+        void setHomeAssistantText(
+          effectiveConfig,
+          effectiveConfig.homeAssistant.activePersonEntityId,
+          "No face detected",
+        );
+      }
+
       if (
         mode === "dashboard" &&
         effectiveConfig.behavior.returnToPhotosOnIdle &&
-        Date.now() - lastInteractionAtRef.current >
-          effectiveConfig.behavior.dashboardIdleTimeoutMs
+        interactionIdleFor > effectiveConfig.behavior.dashboardIdleTimeoutMs &&
+        noFaceFor > effectiveConfig.behavior.photosAfterNoFaceMs
       ) {
         returnToPhotos("idle-timeout");
       }
     }, 1000);
     return () => window.clearInterval(interval);
   }, [
+    activePersonId,
+    cameraAlert,
+    effectiveConfig.screenPower,
     effectiveConfig.behavior.dashboardIdleTimeoutMs,
+    effectiveConfig.behavior.faceResetMs,
+    effectiveConfig.behavior.photosAfterNoFaceMs,
     effectiveConfig.behavior.returnToPhotosOnIdle,
+    effectiveConfig.homeAssistant.activePersonEntityId,
     mode,
     returnToPhotos,
+    effectiveConfig,
+    homeAssistant.states,
+    wakeScreen,
   ]);
 
   useEffect(() => {
@@ -298,8 +597,17 @@ export default function App() {
   }, [effectiveConfig.deviceName, motion.occupied, motion.score, sendEvent]);
 
   useEffect(() => {
+    if (faceRecognition.face) {
+      lastFaceSeenAtRef.current = Date.now();
+      wakeScreen();
+    }
+  }, [faceRecognition.face, wakeScreen]);
+
+  useEffect(() => {
     const person = faceRecognition.person;
     if (!person) return;
+
+    lastFaceSeenAtRef.current = Date.now();
 
     const lastGreetedAt = lastGreetedRef.current[person.id] ?? 0;
     if (Date.now() - lastGreetedAt > effectiveConfig.faceRecognition.greetCooldownMs) {
@@ -356,6 +664,87 @@ export default function App() {
     faceRecognition.person,
     mode,
   ]);
+
+  const openCameraAlert = useCallback(
+    (entityId: string, triggerEntityId?: string) => {
+      wakeScreen();
+      const cameraState = homeAssistant.states.find(
+        (state) => state.entity_id === entityId,
+      );
+      setCameraAlert({
+        entityId,
+        title: cameraState ? friendlyStateName(cameraState) : entityId,
+        triggerEntityId,
+        openedAt: Date.now(),
+      });
+      setMode("dashboard");
+    },
+    [homeAssistant.states, wakeScreen],
+  );
+
+  useEffect(() => {
+    if (!effectiveConfig.cameraOverlay.enabled || !homeAssistantConfigured) return;
+    if (homeAssistant.states.length === 0) return;
+
+    const trigger = activeCameraTrigger(homeAssistant.states, effectiveConfig);
+    if (!trigger) return;
+
+    const camera = bestCameraForTrigger(trigger, homeAssistant.states, effectiveConfig);
+    if (!camera) return;
+
+    const alertKey = `${trigger.entity_id}:${trigger.last_changed ?? trigger.last_updated ?? trigger.state}`;
+    if (dismissedCameraAlertRef.current === alertKey) return;
+    if (
+      cameraAlert?.triggerEntityId === trigger.entity_id &&
+      cameraAlert.entityId === camera.entity_id
+    ) {
+      return;
+    }
+
+    setCameraAlert({
+      entityId: camera.entity_id,
+      title: friendlyStateName(camera),
+      triggerEntityId: trigger.entity_id,
+      openedAt: Date.now(),
+    });
+    wakeScreen();
+    setMode("dashboard");
+    void sendEvent("camera_alert_opened", {
+      device: effectiveConfig.deviceName,
+      trigger_entity_id: trigger.entity_id,
+      camera_entity_id: camera.entity_id,
+      at: new Date().toISOString(),
+    });
+  }, [
+    cameraAlert?.entityId,
+    cameraAlert?.triggerEntityId,
+    effectiveConfig,
+    homeAssistant.states,
+    homeAssistantConfigured,
+    sendEvent,
+    wakeScreen,
+  ]);
+
+  const closeCameraAlert = useCallback(() => {
+    if (cameraAlert?.triggerEntityId) {
+      const trigger = homeAssistant.states.find(
+        (state) => state.entity_id === cameraAlert.triggerEntityId,
+      );
+      dismissedCameraAlertRef.current = trigger
+        ? `${trigger.entity_id}:${trigger.last_changed ?? trigger.last_updated ?? trigger.state}`
+        : cameraAlert.triggerEntityId;
+    }
+    setCameraAlert(null);
+  }, [cameraAlert, homeAssistant.states]);
+
+  useEffect(
+    () => () => {
+      if (controlsTimerRef.current) {
+        window.clearTimeout(controlsTimerRef.current);
+      }
+    },
+    [],
+  );
 
   const currentPhoto = photos[photoIndex % Math.max(1, photos.length)];
   const showFallbackPhoto = !currentPhoto;
@@ -431,12 +820,15 @@ export default function App() {
 
       <section className="dashboard-stage" aria-hidden={mode !== "dashboard"}>
         {homeAssistantConfigured ? (
-          <iframe
-            key={dashboardUrl}
-            className="ha-frame"
-            title="Home Assistant"
-            src={dashboardUrl}
-            allow="camera; microphone; fullscreen"
+          <HomeCenterDashboard
+            config={effectiveConfig}
+            states={homeAssistant.states}
+            status={homeAssistant.status}
+            error={homeAssistant.error}
+            activePerson={activePerson}
+            onCallService={callService}
+            onOpenCamera={openCameraAlert}
+            onRefresh={() => void homeAssistant.refresh()}
           />
         ) : (
           <div className="dashboard-empty">
@@ -450,13 +842,34 @@ export default function App() {
         )}
       </section>
 
-      <div className="top-rail">
-        <div className="rail-group identity">
+      <button
+        type="button"
+        className="corner-hotzone top-right"
+        aria-label="Show controls"
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={revealControls}
+      />
+      <button
+        type="button"
+        className="corner-hotzone bottom-left"
+        aria-label="Show controls"
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={revealControls}
+      />
+      <button
+        type="button"
+        className="corner-hotzone bottom-right"
+        aria-label="Show controls"
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={revealControls}
+      />
+
+      <div className="center-identity" onPointerDown={(event) => event.stopPropagation()}>
+        <div className="identity-pill">
           <Home size={18} />
           <span>{activePerson?.displayName ?? "Home"}</span>
         </div>
-
-        <div className="rail-group telemetry">
+        <div className="status-pill">
           <span title={`Camera: ${cameraStatus}`}>
             <Video size={16} />
             {cameraStatus}
@@ -470,12 +883,25 @@ export default function App() {
             {nativeBridge.status}
           </span>
           <span title={haError ?? "Home Assistant event bridge"}>
-            <span className={`status-dot ${haStatus}`} />
+            <span
+              className={`status-dot ${
+                homeAssistant.status === "ok" || haStatus === "ok"
+                  ? "ok"
+                  : homeAssistant.status === "error" || haStatus === "error"
+                    ? "error"
+                    : ""
+              }`}
+            />
             HA
           </span>
         </div>
+      </div>
 
-        <div className="rail-group controls">
+      <div
+        className={`control-dock ${controlsVisible ? "visible" : ""}`}
+        onPointerDown={(event) => event.stopPropagation()}
+      >
+        <div className="dock-group">
           <button
             type="button"
             title="Photos"
@@ -558,6 +984,27 @@ export default function App() {
           </button>
         </div>
       </div>
+
+      {cameraAlert ? (
+        <CameraAlertOverlay
+          alert={cameraAlert}
+          config={effectiveConfig}
+          onClose={closeCameraAlert}
+          onCallService={callService}
+        />
+      ) : null}
+
+      <div
+        className={`screen-power-overlay screen-power-${screenPowerMode}`}
+        style={{
+          opacity:
+            screenPowerMode === "blackout"
+              ? 1
+              : screenPowerMode === "dim"
+                ? effectiveConfig.screenPower.dimOpacity
+                : 0,
+        }}
+      />
 
       {setupNeeded ? (
         <aside
@@ -703,7 +1150,7 @@ export default function App() {
         <aside className="debug-panel">
           <span>motion {motion.score.toFixed(3)}</span>
           <span>face {faceRecognition.face?.confidenceLabel ?? "none"}</span>
-          <span>url {dashboardUrl}</span>
+          <span>screen {screenPowerMode}</span>
         </aside>
       ) : null}
     </main>

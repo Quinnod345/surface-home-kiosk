@@ -147,13 +147,6 @@ select {
   backdrop-filter: blur(12px);
 }
 
-.ha-frame {
-  width: 100%;
-  height: 100%;
-  border: 0;
-  background: #111;
-}
-
 .dashboard-empty {
   position: absolute;
   inset: 0;
@@ -174,88 +167,408 @@ select {
   line-height: 1.05;
 }
 
-.top-rail {
+.home-center {
   position: absolute;
-  top: 12px;
-  left: 12px;
-  right: 12px;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  pointer-events: none;
-  z-index: 5;
+  inset: 0;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 16px;
+  padding: 86px 28px 28px;
+  color: rgba(255, 255, 255, 0.9);
+  background:
+    radial-gradient(circle at 15% 0%, rgba(215, 72, 76, 0.18), transparent 34%),
+    radial-gradient(circle at 100% 20%, rgba(66, 159, 143, 0.18), transparent 30%),
+    linear-gradient(135deg, #14171c, #0b0d11 62%, #131217);
 }
 
-.rail-group {
+.home-center-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 48px;
+}
+
+.home-center-header h1 {
+  margin: 2px 0 0;
+  font-size: 34px;
+  line-height: 1.05;
+  letter-spacing: 0;
+}
+
+.icon-action,
+.dock-group button,
+.room-card-main button,
+.media-row button,
+.climate-controls button,
+.camera-alert-actions button {
+  display: inline-grid;
+  place-items: center;
+  min-width: 38px;
+  height: 38px;
+  color: rgba(255, 255, 255, 0.86);
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.icon-action:hover,
+.icon-action:focus-visible,
+.dock-group button:hover,
+.dock-group button:focus-visible,
+.room-card-main button:hover,
+.room-card-main button:focus-visible,
+.media-row button:hover,
+.media-row button:focus-visible,
+.climate-controls button:hover,
+.climate-controls button:focus-visible,
+.camera-alert-actions button:hover,
+.camera-alert-actions button:focus-visible {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.icon-action:disabled,
+.dock-group button:disabled,
+.room-card-main button:disabled,
+.media-row button:disabled,
+.climate-controls button:disabled,
+.camera-alert-actions button:disabled {
+  cursor: not-allowed;
+  color: rgba(255, 255, 255, 0.34);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.home-center-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+  min-height: 0;
+}
+
+.dashboard-column {
+  min-height: 0;
+  overflow: hidden auto;
+  padding-right: 4px;
+}
+
+.section-heading {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 42px;
-  padding: 8px 10px;
-  color: rgba(255, 255, 255, 0.86);
-  background: rgba(6, 7, 9, 0.5);
+  margin-bottom: 10px;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.section-heading h2 {
+  margin: 0;
+  font-size: 17px;
+  line-height: 1.1;
+}
+
+.room-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.room-card,
+.dashboard-band,
+.climate-card,
+.media-row {
+  background: rgba(255, 255, 255, 0.075);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  box-shadow: 0 12px 38px rgba(0, 0, 0, 0.18);
+}
+
+.room-card {
+  display: grid;
+  gap: 12px;
+  min-height: 132px;
+  padding: 12px;
+}
+
+.room-card-main,
+.climate-card-main,
+.climate-controls,
+.media-row,
+.home-assistant-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.room-card h3,
+.climate-card h3 {
+  max-width: 100%;
+  margin: 0 0 4px;
+  overflow: hidden;
+  color: #fff;
+  font-size: 18px;
+  line-height: 1.12;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.room-card span,
+.climate-card span,
+.media-row span,
+.home-assistant-status span {
+  min-width: 0;
+  overflow: hidden;
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.room-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.room-metrics span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 7px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 6px;
+}
+
+.room-metrics strong {
+  color: #f3c86f;
+  font-size: 17px;
+  line-height: 1;
+}
+
+.dashboard-band {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 12px;
+}
+
+.media-list,
+.climate-stack {
+  display: grid;
+  gap: 10px;
+}
+
+.media-row {
+  min-height: 64px;
+  padding: 10px;
+}
+
+.media-row div,
+.home-assistant-status div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.media-row strong,
+.home-assistant-status strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #fff;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.camera-shortcuts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.camera-shortcuts button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  min-width: 0;
+  color: rgba(255, 255, 255, 0.88);
+  text-align: left;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  padding: 0 10px;
+  cursor: pointer;
+}
+
+.camera-shortcuts span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.climate-card {
+  display: grid;
+  gap: 14px;
+  padding: 14px;
+}
+
+.temperature-readout {
+  display: grid;
+  justify-items: end;
+}
+
+.temperature-readout strong {
+  color: #f3c86f;
+  font-size: 32px;
+  line-height: 0.95;
+}
+
+.temperature-readout span {
+  font-size: 12px;
+}
+
+.climate-controls > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.climate-controls div {
+  display: flex;
+  gap: 8px;
+}
+
+.fan-card .climate-card-main > svg {
+  color: #80d6c7;
+}
+
+.home-assistant-status {
+  grid-template-columns: auto 1fr;
+  justify-content: start;
+  margin-top: 14px;
+}
+
+.center-identity {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  z-index: 7;
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  max-width: min(640px, calc(100vw - 196px));
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.identity-pill,
+.status-pill {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 38px;
+  max-width: 100%;
+  padding: 8px 12px;
+  color: rgba(255, 255, 255, 0.88);
+  background: rgba(6, 7, 9, 0.54);
   border: 1px solid rgba(255, 255, 255, 0.11);
   border-radius: 8px;
   backdrop-filter: blur(16px);
   pointer-events: auto;
 }
 
-.identity {
-  min-width: 142px;
-  max-width: 30vw;
-  font-weight: 700;
+.identity-pill {
+  min-width: 160px;
+  font-weight: 800;
 }
 
-.identity span {
+.identity-pill span,
+.status-pill span {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.telemetry {
-  min-width: 0;
-  max-width: min(48vw, 560px);
+.status-pill {
   flex-wrap: wrap;
-  justify-content: center;
-  color: rgba(255, 255, 255, 0.72);
-  font-size: 13px;
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 12px;
 }
 
-.telemetry span {
+.status-pill > span {
   display: inline-flex;
   align-items: center;
   gap: 5px;
 }
 
-.telemetry svg {
-  flex: 0 0 auto;
-}
-
-.controls {
-  flex: 0 0 auto;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  max-width: 320px;
-  padding: 5px;
-}
-
-.controls button {
-  display: inline-grid;
-  place-items: center;
-  width: 34px;
-  height: 34px;
-  color: rgba(255, 255, 255, 0.86);
+.corner-hotzone {
+  position: absolute;
+  z-index: 8;
+  width: 112px;
+  height: 112px;
+  padding: 0;
+  opacity: 0;
   background: transparent;
   border: 0;
-  border-radius: 6px;
-  cursor: pointer;
+  cursor: default;
 }
 
-.controls button:hover,
-.controls button:focus-visible {
-  background: rgba(255, 255, 255, 0.14);
+.corner-hotzone.top-right {
+  top: 0;
+  right: 0;
+}
+
+.corner-hotzone.bottom-left {
+  bottom: 0;
+  left: 0;
+}
+
+.corner-hotzone.bottom-right {
+  right: 0;
+  bottom: 0;
+}
+
+.control-dock {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 9;
+  opacity: 0;
+  transform: translateY(-8px);
+  transition:
+    opacity 180ms ease,
+    transform 180ms ease;
+  pointer-events: none;
+}
+
+.control-dock.visible {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.dock-group {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  max-width: 330px;
+  padding: 6px;
+  background: rgba(6, 7, 9, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  backdrop-filter: blur(16px);
+}
+
+.screen-power-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  background: #000;
+  transition: opacity 500ms ease;
+  pointer-events: none;
 }
 
 .enrollment-panel {
@@ -284,6 +597,8 @@ select {
   right: 16px;
   z-index: 11;
   width: min(620px, calc(100vw - 32px));
+  max-height: calc(100vh - 92px);
+  overflow: auto;
   color: rgba(255, 255, 255, 0.9);
   background: rgba(9, 11, 14, 0.9);
   border: 1px solid rgba(255, 255, 255, 0.14);
@@ -490,14 +805,38 @@ select {
 
 .enrollment-grid input,
 .setup-fields input,
-.setup-fields select {
+.setup-fields select,
+.setup-fields textarea {
   width: 100%;
-  height: 38px;
   color: #fff;
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 6px;
+}
+
+.enrollment-grid input,
+.setup-fields input,
+.setup-fields select {
+  height: 38px;
   padding: 0 10px;
+}
+
+.setup-fields textarea {
+  min-height: 84px;
+  resize: vertical;
+  padding: 10px;
+}
+
+.screen-power-fields,
+.camera-overlay-fields {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.setup-fields .checkbox-line {
+  grid-template-columns: auto 1fr;
+  align-items: center;
 }
 
 .token-field div {
@@ -753,17 +1092,98 @@ select {
   border-color: rgba(255, 255, 255, 0.12);
 }
 
+.camera-alert {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  grid-template-rows: 1fr auto;
+  color: rgba(255, 255, 255, 0.92);
+  background: #050607;
+}
+
+.camera-alert-media {
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.camera-alert-media img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #050607;
+}
+
+.camera-alert-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 12px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.camera-alert-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 82px;
+  padding: 14px 18px;
+  background: rgba(10, 12, 15, 0.92);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.camera-alert-bar h2 {
+  margin: 2px 0 0;
+  font-size: 26px;
+  line-height: 1.08;
+}
+
+.camera-alert-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.camera-alert-actions button {
+  display: inline-flex;
+  gap: 7px;
+  padding: 0 11px;
+}
+
 @media (max-width: 760px) {
-  .top-rail {
-    align-items: flex-start;
+  .home-center {
+    padding: 108px 16px 18px;
   }
 
-  .telemetry {
+  .home-center-header h1 {
+    font-size: 26px;
+  }
+
+  .home-center-grid,
+  .room-grid,
+  .camera-shortcuts {
+    grid-template-columns: 1fr;
+  }
+
+  .center-identity {
+    max-width: min(520px, calc(100vw - 112px));
+  }
+
+  .status-pill {
     display: none;
   }
 
-  .identity {
-    max-width: 44vw;
+  .control-dock {
+    left: 14px;
+  }
+
+  .dock-group {
+    max-width: none;
   }
 
   .idle-clock {
@@ -780,7 +1200,7 @@ select {
   }
 
   .idle-status {
-    top: 72px;
+    top: 88px;
     bottom: auto;
     left: 18px;
     right: auto;
@@ -812,6 +1232,20 @@ select {
     top: 70px;
     left: 16px;
     right: 16px;
+  }
+
+  .camera-alert-bar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .camera-alert-actions {
+    justify-content: stretch;
+  }
+
+  .camera-alert-actions button {
+    flex: 1;
+    justify-content: center;
   }
 
   .enrollment-layout,

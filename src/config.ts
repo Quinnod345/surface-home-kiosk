@@ -1,5 +1,14 @@
 export type DashboardMode = "idle" | "dashboard";
 
+export type CameraEntityBinding = {
+  triggerEntityId: string;
+  cameraEntityId: string;
+};
+
+export type ScreenPowerAction = "dim" | "photos" | "blackout";
+
+export type ScreenPowerCondition = "never" | "quiet-hours" | "ambient-dark" | "either" | "both";
+
 export type PersonProfile = {
   id: string;
   displayName: string;
@@ -18,6 +27,7 @@ export type KioskConfig = {
     dashboardUrl: string;
     accessToken?: string;
     eventPrefix: string;
+    allowSelfSignedCertificate: boolean;
     occupancyEntityId?: string;
     activePersonEntityId?: string;
   };
@@ -48,9 +58,33 @@ export type KioskConfig = {
   };
   behavior: {
     dashboardIdleTimeoutMs: number;
+    faceResetMs: number;
+    photosAfterNoFaceMs: number;
     returnToPhotosOnIdle: boolean;
     openDashboardOnCloseFace: boolean;
     openDashboardOnTap: boolean;
+  };
+  screenPower: {
+    enabled: boolean;
+    dimAfterMs: number;
+    dimOpacity: number;
+    deepSleepAfterMs: number;
+    deepSleepAction: ScreenPowerAction;
+    deepSleepCondition: ScreenPowerCondition;
+    quietHoursStart: string;
+    quietHoursEnd: string;
+    ambientLightEntityId?: string;
+    ambientLightThresholdLux: number;
+    useWindowsDisplayPower: boolean;
+  };
+  cameraOverlay: {
+    enabled: boolean;
+    triggerEntityIds: string[];
+    cameraBindings: CameraEntityBinding[];
+    defaultCameraEntityId?: string;
+    talkEntityId?: string;
+    dismissAfterMs: number;
+    snapshotRefreshMs: number;
   };
   people: PersonProfile[];
   runtime?: {
@@ -67,6 +101,7 @@ export const defaultConfig: KioskConfig = {
     baseUrl: "https://homeassistant.local",
     dashboardUrl: "https://homeassistant.local/lovelace/default_view?kiosk",
     eventPrefix: "surface_kiosk",
+    allowSelfSignedCertificate: true,
   },
   slideshow: {
     photos: ["/photos/README.md"],
@@ -95,9 +130,30 @@ export const defaultConfig: KioskConfig = {
   },
   behavior: {
     dashboardIdleTimeoutMs: 90000,
+    faceResetMs: 120000,
+    photosAfterNoFaceMs: 30000,
     returnToPhotosOnIdle: true,
     openDashboardOnCloseFace: true,
     openDashboardOnTap: true,
+  },
+  screenPower: {
+    enabled: true,
+    dimAfterMs: 30000,
+    dimOpacity: 0.5,
+    deepSleepAfterMs: 120000,
+    deepSleepAction: "photos",
+    deepSleepCondition: "either",
+    quietHoursStart: "22:30",
+    quietHoursEnd: "06:30",
+    ambientLightThresholdLux: 8,
+    useWindowsDisplayPower: false,
+  },
+  cameraOverlay: {
+    enabled: true,
+    triggerEntityIds: [],
+    cameraBindings: [],
+    dismissAfterMs: 120000,
+    snapshotRefreshMs: 2000,
   },
   people: [],
 };
