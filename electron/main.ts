@@ -91,7 +91,7 @@ function configCandidates() {
 
 async function readJsonIfPresent(filePath: string) {
   try {
-    const text = await fs.readFile(filePath, "utf8");
+    const text = (await fs.readFile(filePath, "utf8")).replace(/^\uFEFF/, "");
     return JSON.parse(text) as KioskConfig;
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
@@ -103,7 +103,7 @@ async function readJsonIfPresent(filePath: string) {
 
 async function readStateDb() {
   try {
-    const text = await fs.readFile(stateDbPath(), "utf8");
+    const text = (await fs.readFile(stateDbPath(), "utf8")).replace(/^\uFEFF/, "");
     const parsed = JSON.parse(text) as Partial<KioskStateDb>;
     if (parsed.version !== 1) return undefined;
     return parsed as KioskStateDb;
