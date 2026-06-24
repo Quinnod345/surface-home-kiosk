@@ -8,11 +8,8 @@ $BridgeExe = Join-Path $Root "windows\SurfaceCameraBridge\bin\Release\net8.0-win
 $BridgeLog = Join-Path $Root "surface-camera-bridge.log"
 $BridgeErrorLog = Join-Path $Root "surface-camera-bridge.error.log"
 $KioskLog = Join-Path $Root "surface-home-kiosk.log"
-
-if ((Test-Path $VbsLauncher) -and -not $env:SURFACE_KIOSK_PS_FALLBACK) {
-  Start-Process -FilePath "wscript.exe" -ArgumentList "`"$VbsLauncher`""
-  return
-}
+$KioskErrorLog = Join-Path $Root "surface-home-kiosk.error.log"
+$ElectronExe = Join-Path $Root "node_modules\electron\dist\electron.exe"
 
 function Start-Bridge {
   if (Get-Process SurfaceCameraBridge -ErrorAction SilentlyContinue) {
@@ -42,9 +39,12 @@ Start-Bridge
 $env:SURFACE_KIOSK = "1"
 $env:NODE_ENV = "production"
 
-Push-Location $Root
-try {
-  npm start *>> $KioskLog
-} finally {
-  Pop-Location
+if (-not (Test-Path $ElectronExe)) {
+  throw "Electron not found at $ElectronExe. Run Install-SurfaceHomeKiosk.ps1 first."
 }
+
+Start-Process -FilePath $ElectronExe `
+  -ArgumentList @($Root) `
+  -WorkingDirectory $Root `
+  -RedirectStandardOutput $KioskLog `
+  -RedirectStandardError $KioskErrorLog
