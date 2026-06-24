@@ -57,6 +57,10 @@ function devServerUrl() {
   return process.env.VITE_DEV_SERVER_URL ?? "http://127.0.0.1:5173";
 }
 
+function preloadPath() {
+  return path.join(appRoot(), "electron", "preload.cjs");
+}
+
 function userConfigPath() {
   return path.join(app.getPath("userData"), "kiosk-config.json");
 }
@@ -359,7 +363,7 @@ function createWindow() {
     kiosk: fullscreen,
     autoHideMenuBar: true,
     webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
+      preload: preloadPath(),
       contextIsolation: true,
       nodeIntegration: false,
     },
