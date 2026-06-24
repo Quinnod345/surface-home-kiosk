@@ -1,0 +1,450 @@
+:root {
+  color: #f7f4ec;
+  background: #0f1115;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+.app {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background:
+    linear-gradient(135deg, rgba(24, 29, 35, 0.96), rgba(8, 9, 12, 0.98)),
+    #0f1115;
+  outline: none;
+}
+
+.idle-stage,
+.dashboard-stage {
+  position: absolute;
+  inset: 0;
+  transition:
+    opacity 240ms ease,
+    transform 240ms ease;
+}
+
+.idle-stage {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.dashboard-stage {
+  opacity: 0;
+  pointer-events: none;
+  transform: scale(1.012);
+}
+
+.app-dashboard .idle-stage {
+  opacity: 0;
+  pointer-events: none;
+  transform: scale(1.012);
+}
+
+.app-dashboard .dashboard-stage {
+  opacity: 1;
+  pointer-events: auto;
+  transform: scale(1);
+}
+
+.camera-probe {
+  position: fixed;
+  width: 1px;
+  height: 1px;
+  right: 0;
+  bottom: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.idle-photo,
+.photo-fallback {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.idle-photo {
+  object-fit: cover;
+}
+
+.photo-fallback {
+  background:
+    linear-gradient(115deg, rgba(255, 255, 255, 0.08) 0 1px, transparent 1px 18px),
+    linear-gradient(142deg, rgba(222, 185, 101, 0.18), transparent 42%),
+    linear-gradient(24deg, transparent 48%, rgba(94, 177, 159, 0.2)),
+    #171515;
+}
+
+.idle-shade {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, rgba(0, 0, 0, 0.64), transparent 52%),
+    linear-gradient(0deg, rgba(0, 0, 0, 0.45), transparent 44%);
+}
+
+.idle-clock {
+  position: absolute;
+  left: clamp(28px, 6vw, 76px);
+  bottom: clamp(34px, 9vh, 92px);
+  display: grid;
+  gap: 4px;
+  text-shadow: 0 3px 28px rgba(0, 0, 0, 0.7);
+}
+
+.idle-clock span {
+  font-size: clamp(60px, 12vh, 118px);
+  line-height: 0.92;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.idle-clock small {
+  font-size: 24px;
+  line-height: 1.2;
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.idle-status {
+  position: absolute;
+  right: clamp(18px, 3vw, 42px);
+  bottom: clamp(22px, 5vh, 42px);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  color: rgba(255, 255, 255, 0.86);
+  background: rgba(6, 7, 9, 0.46);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  backdrop-filter: blur(12px);
+}
+
+.ha-frame {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #111;
+}
+
+.top-rail {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.rail-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 8px 10px;
+  color: rgba(255, 255, 255, 0.86);
+  background: rgba(6, 7, 9, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  border-radius: 8px;
+  backdrop-filter: blur(16px);
+  pointer-events: auto;
+}
+
+.identity {
+  min-width: 142px;
+  max-width: 30vw;
+  font-weight: 700;
+}
+
+.identity span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.telemetry {
+  flex-wrap: wrap;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 13px;
+}
+
+.telemetry span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.telemetry svg {
+  flex: 0 0 auto;
+}
+
+.controls {
+  padding: 5px;
+}
+
+.controls button {
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  color: rgba(255, 255, 255, 0.86);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.controls button:hover,
+.controls button:focus-visible {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.enrollment-panel {
+  position: absolute;
+  top: 72px;
+  right: 16px;
+  z-index: 10;
+  width: min(460px, calc(100vw - 32px));
+  color: rgba(255, 255, 255, 0.9);
+  background: rgba(9, 11, 14, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  padding: 16px;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.38);
+  backdrop-filter: blur(18px);
+}
+
+.enrollment-header,
+.enrollment-footer,
+.sample-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.enrollment-header h2 {
+  margin: 2px 0 0;
+  font-size: 22px;
+  line-height: 1.1;
+}
+
+.eyebrow,
+.enrollment-grid label span,
+.enrollment-footer span,
+.sample-count span {
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 12px;
+}
+
+.enrollment-header button,
+.primary-action,
+.save-action {
+  border: 0;
+  cursor: pointer;
+}
+
+.enrollment-header button {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  color: rgba(255, 255, 255, 0.86);
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+}
+
+.enrollment-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 16px 0;
+}
+
+.enrollment-grid label {
+  display: grid;
+  gap: 6px;
+}
+
+.enrollment-grid .wide {
+  grid-column: 1 / -1;
+}
+
+.enrollment-grid input {
+  width: 100%;
+  height: 38px;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 6px;
+  padding: 0 10px;
+}
+
+.primary-action,
+.save-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  color: #101416;
+  background: #75d9a4;
+  border-radius: 6px;
+  padding: 0 12px;
+  font-weight: 700;
+}
+
+.primary-action:disabled,
+.save-action:disabled {
+  cursor: not-allowed;
+  color: rgba(255, 255, 255, 0.42);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.sample-count {
+  display: grid;
+  justify-items: end;
+}
+
+.sample-count strong {
+  font-size: 24px;
+  line-height: 1;
+}
+
+.enrollment-error {
+  margin: 12px 0 0;
+  color: #ffb9ad;
+  font-size: 13px;
+}
+
+.enrollment-footer {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #85868c;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.status-dot.live,
+.status-dot.ok {
+  background: #65d39a;
+}
+
+.status-dot.error {
+  background: #f06a5d;
+}
+
+.setup-strip,
+.debug-panel {
+  position: absolute;
+  left: 16px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(760px, calc(100vw - 32px));
+  color: #fff8d7;
+  background: rgba(77, 55, 15, 0.82);
+  border: 1px solid rgba(255, 222, 150, 0.34);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 14px;
+  backdrop-filter: blur(12px);
+}
+
+.setup-strip {
+  bottom: 16px;
+}
+
+.debug-panel {
+  bottom: 68px;
+  flex-wrap: wrap;
+  color: rgba(255, 255, 255, 0.8);
+  background: rgba(0, 0, 0, 0.6);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+@media (max-width: 760px) {
+  .top-rail {
+    align-items: flex-start;
+  }
+
+  .telemetry {
+    display: none;
+  }
+
+  .identity {
+    max-width: 44vw;
+  }
+
+  .idle-clock {
+    bottom: 104px;
+  }
+
+  .idle-clock span {
+    font-size: 72px;
+    line-height: 0.95;
+  }
+
+  .idle-clock small {
+    font-size: 18px;
+  }
+
+  .idle-status {
+    top: 72px;
+    bottom: auto;
+    left: 18px;
+    right: auto;
+  }
+
+  .setup-strip {
+    font-size: 13px;
+  }
+
+  .enrollment-panel {
+    top: 70px;
+    left: 16px;
+    right: 16px;
+  }
+
+  .enrollment-grid {
+    grid-template-columns: 1fr;
+  }
+}

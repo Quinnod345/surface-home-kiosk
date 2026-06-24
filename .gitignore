@@ -1,0 +1,12 @@
+node_modules/
+dist/
+dist-electron/
+*.local.json
+*.tsbuildinfo
+bin/
+obj/
+camera-probe-output/
+*.log
+*.error.log
+surface-camera-capture.png
+.DS_Store

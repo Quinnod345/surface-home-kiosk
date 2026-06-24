@@ -1,0 +1,34 @@
+{
+  "name": "surface-home-kiosk",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Fullscreen Surface kiosk for Home Assistant dashboards, family photo idle mode, camera presence, and face-aware personalization.",
+  "main": "dist-electron/electron/main.js",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k \"vite --host 127.0.0.1\" \"wait-on tcp:5173 && electron .\"",
+    "build": "tsc -p tsconfig.node.json && tsc -b tsconfig.json && vite build",
+    "start": "electron .",
+    "preview": "vite preview --host 127.0.0.1",
+    "download:face-models": "node scripts/download-face-models.mjs",
+    "bridge:build": "dotnet build windows/SurfaceCameraBridge/SurfaceCameraBridge.csproj",
+    "bridge:publish": "dotnet publish windows/SurfaceCameraBridge/SurfaceCameraBridge.csproj -c Release -r win-x64 --self-contained false"
+  },
+  "dependencies": {
+    "@vladmandic/face-api": "^1.7.15",
+    "lucide-react": "^0.468.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "20.14.10",
+    "@types/react": "18.3.3",
+    "@types/react-dom": "18.3.0",
+    "@vitejs/plugin-react": "4.3.1",
+    "concurrently": "8.2.2",
+    "electron": "42.5.0",
+    "typescript": "5.5.3",
+    "vite": "5.3.3",
+    "wait-on": "7.2.0"
+  }
+}
