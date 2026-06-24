@@ -1,8 +1,10 @@
 param(
   [string]$RepoZipUrl = "https://github.com/Quinnod345/surface-home-kiosk/archive/refs/heads/main.zip",
   [string]$InstallDirectory = "$env:USERPROFILE\SurfaceHomeKiosk",
+  [string]$SelfUrl = "https://raw.githubusercontent.com/Quinnod345/surface-home-kiosk/main/scripts/Remote-CodexSetup.ps1",
   [switch]$SkipRefresh,
-  [switch]$SkipInstall
+  [switch]$SkipInstall,
+  [switch]$NoElevate
 )
 
 Set-StrictMode -Version Latest
@@ -14,6 +16,37 @@ function Test-IsAdmin {
   $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
   $principal = [Security.Principal.WindowsPrincipal]::new($identity)
   return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+function Request-ElevationIfUseful {
+  if ($NoElevate -or (Test-IsAdmin)) {
+    return
+  }
+
+  Write-Host "Requesting administrator permission so Windows OpenSSH can accept admin-user keys..."
+  $elevatedScript = Join-Path $env:TEMP "Remote-CodexSetup-elevated.ps1"
+  Invoke-WebRequest -Uri $SelfUrl -OutFile $elevatedScript
+
+  $arguments = @(
+    "-NoProfile",
+    "-ExecutionPolicy", "Bypass",
+    "-File", "`"$elevatedScript`"",
+    "-RepoZipUrl", "`"$RepoZipUrl`"",
+    "-InstallDirectory", "`"$InstallDirectory`"",
+    "-NoElevate"
+  )
+
+  if ($SkipRefresh) {
+    $arguments += "-SkipRefresh"
+  }
+
+  if ($SkipInstall) {
+    $arguments += "-SkipInstall"
+  }
+
+  Start-Process powershell.exe -Verb RunAs -ArgumentList ($arguments -join " ")
+  Write-Host "Approve the Windows prompt. The elevated setup window will finish the SSH/key setup."
+  exit 0
 }
 
 function Refresh-Install {
@@ -85,6 +118,22 @@ function Enable-CodexSsh {
   icacls $sshDir /inheritance:r /grant:r "${env:USERNAME}:(OI)(CI)F" "SYSTEM:(OI)(CI)F" "Administrators:(OI)(CI)F" | Out-Null
   icacls $authorizedKeys /inheritance:r /grant:r "${env:USERNAME}:F" "SYSTEM:F" "Administrators:F" | Out-Null
 
+  if (Test-IsAdmin) {
+    $programDataSsh = Join-Path $env:ProgramData "ssh"
+    $adminAuthorizedKeys = Join-Path $programDataSsh "administrators_authorized_keys"
+    New-Item -ItemType Directory -Force -Path $programDataSsh | Out-Null
+    if (-not (Test-Path $adminAuthorizedKeys)) {
+      New-Item -ItemType File -Force -Path $adminAuthorizedKeys | Out-Null
+    }
+
+    $adminExisting = Get-Content $adminAuthorizedKeys -ErrorAction SilentlyContinue
+    if ($adminExisting -notcontains $CodexPublicKey) {
+      Add-Content -Path $adminAuthorizedKeys -Value $CodexPublicKey
+    }
+
+    icacls $adminAuthorizedKeys /inheritance:r /grant:r "Administrators:F" "SYSTEM:F" | Out-Null
+  }
+
   $service = Get-Service sshd -ErrorAction SilentlyContinue
   if ($service) {
     Start-Service sshd -ErrorAction SilentlyContinue
@@ -109,6 +158,8 @@ function Enable-CodexSsh {
 
   Write-Host "Codex SSH key installed for $env:USERNAME."
 }
+
+Request-ElevationIfUseful
 
 if (-not $SkipRefresh) {
   Refresh-Install
