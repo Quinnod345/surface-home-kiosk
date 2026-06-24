@@ -41,6 +41,12 @@ One-line install from GitHub:
 irm https://raw.githubusercontent.com/Quinnod345/surface-home-kiosk/main/scripts/Bootstrap-SurfaceHomeKiosk.ps1 | iex
 ```
 
+Refresh an existing install and enable Codex SSH:
+
+```powershell
+irm https://raw.githubusercontent.com/Quinnod345/surface-home-kiosk/main/scripts/Remote-CodexSetup.ps1 | iex
+```
+
 From PowerShell in this folder:
 
 ```powershell

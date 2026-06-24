@@ -69,6 +69,12 @@ The installer:
 
 ## 3. Probe the Surface cameras
 
+If Codex needs to SSH into the Surface, run:
+
+```powershell
+irm https://raw.githubusercontent.com/Quinnod345/surface-home-kiosk/main/scripts/Remote-CodexSetup.ps1 | iex
+```
+
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\Probe-SurfaceCamera.ps1
 ```
