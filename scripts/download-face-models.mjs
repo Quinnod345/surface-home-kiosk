@@ -8,15 +8,23 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const outputDir = join(__dirname, "..", "public", "models");
 const distRoot = join(__dirname, "..", "dist");
 const distOutputDir = join(distRoot, "models");
+const packageModelDir = join(
+  __dirname,
+  "..",
+  "node_modules",
+  "@vladmandic",
+  "face-api",
+  "model",
+);
 const baseUrl = "https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model";
 
 const files = [
   "tiny_face_detector_model-weights_manifest.json",
-  "tiny_face_detector_model-shard1",
+  "tiny_face_detector_model.bin",
   "face_landmark_68_model-weights_manifest.json",
-  "face_landmark_68_model-shard1",
+  "face_landmark_68_model.bin",
   "face_recognition_model-weights_manifest.json",
-  "face_recognition_model-shard1",
+  "face_recognition_model.bin",
 ];
 
 async function pathExists(path) {
@@ -36,14 +44,20 @@ if (copyToDist) {
 }
 
 for (const file of files) {
-  const url = `${baseUrl}/${file}`;
   const destination = join(outputDir, file);
-  const response = await fetch(url);
-  if (!response.ok || !response.body) {
-    throw new Error(`Could not download ${url}: ${response.status}`);
+
+  if (await pathExists(join(packageModelDir, file))) {
+    await copyFile(join(packageModelDir, file), destination);
+    console.log(`Copied package model ${file}`);
+  } else {
+    const url = `${baseUrl}/${file}`;
+    const response = await fetch(url);
+    if (!response.ok || !response.body) {
+      throw new Error(`Could not download ${url}: ${response.status}`);
+    }
+    await pipeline(response.body, createWriteStream(destination));
+    console.log(`Downloaded ${file}`);
   }
-  await pipeline(response.body, createWriteStream(destination));
-  console.log(`Downloaded ${file}`);
 
   if (copyToDist) {
     await copyFile(destination, join(distOutputDir, file));
