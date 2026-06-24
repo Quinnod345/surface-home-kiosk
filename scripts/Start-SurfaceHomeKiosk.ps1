@@ -2,11 +2,17 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $Root = Resolve-Path (Join-Path $PSScriptRoot "..")
+$VbsLauncher = Join-Path $Root "scripts\Start-SurfaceHomeKiosk.vbs"
 $BridgeProject = Join-Path $Root "windows\SurfaceCameraBridge\SurfaceCameraBridge.csproj"
 $BridgeExe = Join-Path $Root "windows\SurfaceCameraBridge\bin\Release\net8.0-windows10.0.19041.0\win-x64\publish\SurfaceCameraBridge.exe"
 $BridgeLog = Join-Path $Root "surface-camera-bridge.log"
 $BridgeErrorLog = Join-Path $Root "surface-camera-bridge.error.log"
 $KioskLog = Join-Path $Root "surface-home-kiosk.log"
+
+if ((Test-Path $VbsLauncher) -and -not $env:SURFACE_KIOSK_PS_FALLBACK) {
+  Start-Process -FilePath "wscript.exe" -ArgumentList "`"$VbsLauncher`""
+  return
+}
 
 function Start-Bridge {
   if (Get-Process SurfaceCameraBridge -ErrorAction SilentlyContinue) {

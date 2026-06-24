@@ -12,7 +12,7 @@ $ErrorActionPreference = "Stop"
 $Root = Resolve-Path (Join-Path $PSScriptRoot "..")
 $ConfigPath = Join-Path $Root "public\kiosk-config.json"
 $ExampleConfigPath = Join-Path $Root "public\kiosk-config.example.json"
-$StartScript = Join-Path $Root "scripts\Start-SurfaceHomeKiosk.ps1"
+$StartScript = Join-Path $Root "scripts\Start-SurfaceHomeKiosk.vbs"
 $TaskName = "Surface Home Kiosk"
 
 function Refresh-Path {
@@ -106,8 +106,8 @@ function Publish-Bridge {
 
 function Install-Autostart {
   $action = New-ScheduledTaskAction `
-    -Execute "powershell.exe" `
-    -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$StartScript`""
+    -Execute "wscript.exe" `
+    -Argument "`"$StartScript`""
   $trigger = New-ScheduledTaskTrigger -AtLogOn
   $principal = New-ScheduledTaskPrincipal `
     -UserId ([Security.Principal.WindowsIdentity]::GetCurrent().Name) `
