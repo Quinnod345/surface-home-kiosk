@@ -92,12 +92,100 @@ export async function captureDescriptor(
     .withFaceDescriptor();
 }
 
-function frameSize(input: HTMLVideoElement | HTMLImageElement) {
+// Infrared frames from the Surface Hello camera are grayscale and, at room
+// distance, dim — the face sits as a low-value region on a black background.
+// Stretch the 2nd–98th luma percentiles to the full range so face-api sees the
+// contrast it expects. Enrollment and recognition both run frames through this,
+// so the descriptor space stays internally consistent.
+function stretchInfraredContrast(canvas: HTMLCanvasElement) {
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) return;
+
+  const image = context.getImageData(0, 0, canvas.width, canvas.height);
+  const data = image.data;
+  const pixelCount = canvas.width * canvas.height;
+  if (pixelCount <= 0) return;
+
+  const histogram = new Array<number>(256).fill(0);
+  for (let i = 0; i < data.length; i += 4) {
+    const luma =
+      (data[i] * 0.2126 + data[i + 1] * 0.7152 + data[i + 2] * 0.0722) | 0;
+    histogram[luma]++;
+  }
+
+  const lowTarget = pixelCount * 0.02;
+  const highTarget = pixelCount * 0.98;
+  let low = 0;
+  let high = 255;
+  let running = 0;
+  for (let v = 0; v < 256; v++) {
+    running += histogram[v];
+    if (running >= lowTarget) {
+      low = v;
+      break;
+    }
+  }
+  running = 0;
+  for (let v = 0; v < 256; v++) {
+    running += histogram[v];
+    if (running >= highTarget) {
+      high = v;
+      break;
+    }
+  }
+  if (high <= low) high = Math.min(255, low + 1);
+
+  const scale = 255 / (high - low);
+  for (let i = 0; i < data.length; i += 4) {
+    const luma = data[i] * 0.2126 + data[i + 1] * 0.7152 + data[i + 2] * 0.0722;
+    let out = (luma - low) * scale;
+    out = out < 0 ? 0 : out > 255 ? 255 : out;
+    data[i] = data[i + 1] = data[i + 2] = out;
+    data[i + 3] = 255;
+  }
+  context.putImageData(image, 0, 0);
+}
+
+// Fetch a bridge data URL and return a contrast-enhanced canvas suitable as a
+// face-api detection input. Used for native infrared frames.
+export async function loadEnhancedInfrared(
+  faceapi: FaceApi,
+  dataUrl: string,
+): Promise<HTMLCanvasElement> {
+  const image = await faceapi.fetchImage(dataUrl);
+  const canvas = document.createElement("canvas");
+  canvas.width = image.naturalWidth || image.width;
+  canvas.height = image.naturalHeight || image.height;
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (context) {
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    stretchInfraredContrast(canvas);
+  }
+  return canvas;
+}
+
+export async function captureDescriptorFromInfrared(
+  dataUrl: string,
+  config: KioskConfig,
+) {
+  const faceapi = await loadFaceApi(config.faceRecognition.modelUrl);
+  const canvas = await loadEnhancedInfrared(faceapi, dataUrl);
+  return faceapi
+    .detectSingleFace(canvas, new faceapi.TinyFaceDetectorOptions())
+    .withFaceLandmarks()
+    .withFaceDescriptor();
+}
+
+function frameSize(input: HTMLVideoElement | HTMLImageElement | HTMLCanvasElement) {
   if (input instanceof HTMLVideoElement) {
     return {
       width: input.videoWidth || input.clientWidth,
       height: input.videoHeight || input.clientHeight,
     };
+  }
+
+  if (input instanceof HTMLCanvasElement) {
+    return { width: input.width, height: input.height };
   }
 
   return {
@@ -107,7 +195,7 @@ function frameSize(input: HTMLVideoElement | HTMLImageElement) {
 }
 
 function brightnessStats(
-  input: HTMLVideoElement | HTMLImageElement,
+  input: HTMLVideoElement | HTMLImageElement | HTMLCanvasElement,
   box: { x: number; y: number; width: number; height: number },
   width: number,
   height: number,
@@ -189,7 +277,7 @@ function emptyQuality(
 }
 
 export async function analyzeFaceInput(
-  input: HTMLVideoElement | HTMLImageElement,
+  input: HTMLVideoElement | HTMLImageElement | HTMLCanvasElement,
   config: KioskConfig,
 ): Promise<FaceQuality> {
   const faceapi = await loadFaceApi(config.faceRecognition.modelUrl);

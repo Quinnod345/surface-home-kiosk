@@ -11,6 +11,9 @@ import {
   analyzeFaceInput,
   captureDescriptor,
   captureDescriptorFromImageUrl,
+  captureDescriptorFromInfrared,
+  loadEnhancedInfrared,
+  loadFaceApi,
   type FaceQuality,
 } from "./faceApiRuntime";
 
@@ -19,6 +22,7 @@ type EnrollmentPanelProps = {
   stream: MediaStream | null;
   video: HTMLVideoElement | null;
   bridgeFrameDataUrl?: string | null;
+  bridgeSourceKind?: string | null;
   onClose: () => void;
   onSaved: (people: EnrolledPerson[]) => void;
 };
@@ -60,6 +64,7 @@ export function EnrollmentPanel({
   stream,
   video,
   bridgeFrameDataUrl,
+  bridgeSourceKind,
   onClose,
   onSaved,
 }: EnrollmentPanelProps) {
@@ -69,16 +74,23 @@ export function EnrollmentPanel({
   const [dashboardPath, setDashboardPath] = useState("");
   const [samples, setSamples] = useState<CaptureSample[]>([]);
   const [quality, setQuality] = useState<FaceQuality | null>(null);
+  const [irPreviewUrl, setIrPreviewUrl] = useState<string | null>(null);
   const [status, setStatus] = useState<
     "idle" | "loading" | "capturing" | "saving" | "saved"
   >("loading");
   const [error, setError] = useState<string | null>(null);
 
+  // Enroll from the same infrared source recognition uses, so descriptors live
+  // in the same domain. Otherwise an RGB-enrolled face never matches in the dark.
+  const preferInfrared =
+    (bridgeSourceKind ?? "").toLowerCase() === "infrared" &&
+    Boolean(bridgeFrameDataUrl);
+
   const resolvedId = useMemo(
     () => slugify(personId || displayName),
     [displayName, personId],
   );
-  const hasVideoPreview = Boolean(stream);
+  const hasVideoPreview = Boolean(stream) && !preferInfrared;
   const sourceReady = Boolean(stream || bridgeFrameDataUrl || video);
   const nextPrompt = sampleLabel(samples.length);
   const canCapture = Boolean(
@@ -114,6 +126,19 @@ export function EnrollmentPanel({
       if (running) return;
       running = true;
       try {
+        if (preferInfrared && bridgeFrameDataUrl) {
+          const faceapi = await loadFaceApi(config.faceRecognition.modelUrl);
+          const canvas = await loadEnhancedInfrared(faceapi, bridgeFrameDataUrl);
+          const next = await analyzeFaceInput(canvas, config);
+          if (!cancelled) {
+            setIrPreviewUrl(canvas.toDataURL("image/png"));
+            setQuality(next);
+            setStatus("idle");
+            setError(null);
+          }
+          return;
+        }
+
         const preview = previewVideoRef.current;
         const input =
           preview && preview.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
@@ -162,7 +187,7 @@ export function EnrollmentPanel({
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [bridgeFrameDataUrl, config, stream, video]);
+  }, [bridgeFrameDataUrl, config, preferInfrared, stream, video]);
 
   async function captureSample() {
     if (!sourceReady || !quality?.canCapture) return;
@@ -172,14 +197,17 @@ export function EnrollmentPanel({
     try {
       const descriptor =
         quality.descriptor ??
-        (previewVideoRef.current
-          ? (await captureDescriptor(previewVideoRef.current, config))?.descriptor
-          : bridgeFrameDataUrl
-            ? (await captureDescriptorFromImageUrl(bridgeFrameDataUrl, config))
-                ?.descriptor
-            : video
-              ? (await captureDescriptor(video, config))?.descriptor
-              : null);
+        (preferInfrared && bridgeFrameDataUrl
+          ? (await captureDescriptorFromInfrared(bridgeFrameDataUrl, config))
+              ?.descriptor
+          : previewVideoRef.current
+            ? (await captureDescriptor(previewVideoRef.current, config))?.descriptor
+            : bridgeFrameDataUrl
+              ? (await captureDescriptorFromImageUrl(bridgeFrameDataUrl, config))
+                  ?.descriptor
+              : video
+                ? (await captureDescriptor(video, config))?.descriptor
+                : null);
 
       if (!descriptor) {
         setError("No usable face found. Match the guide and try again.");
@@ -254,9 +282,22 @@ export function EnrollmentPanel({
         </button>
       </div>
 
+      {status === "loading" ? (
+        <div className="enrollment-loading">
+          <Loader2 size={18} className="spin" />
+          <span>Loading face models — this can take a few seconds on first open.</span>
+        </div>
+      ) : null}
+
       <div className="enrollment-layout">
         <div className="face-preview">
-          {stream ? (
+          {preferInfrared ? (
+            (irPreviewUrl ?? bridgeFrameDataUrl) ? (
+              <img src={irPreviewUrl ?? bridgeFrameDataUrl ?? ""} alt="" draggable={false} />
+            ) : (
+              <div className="preview-empty">Infrared camera starting</div>
+            )
+          ) : stream ? (
             <video
               ref={previewVideoRef}
               className="enrollment-video"

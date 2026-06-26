@@ -21,7 +21,7 @@ try
             await BridgeServer.RunAsync(
                 url: Args.Value(args, "--url") ?? "http://127.0.0.1:8765/",
                 kind: Args.Value(args, "--kind") ?? "Infrared",
-                intervalMs: Args.IntValue(args, "--interval-ms") ?? 900);
+                intervalMs: Args.IntValue(args, "--interval-ms") ?? 250);
             break;
 
         default:

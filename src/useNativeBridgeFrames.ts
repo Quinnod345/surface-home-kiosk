@@ -26,15 +26,21 @@ type BridgeErrorMessage = {
   error: string;
 };
 
-export function useNativeBridgeFrames(config: KioskConfig) {
+export function useNativeBridgeFrames(
+  config: KioskConfig,
+  active: boolean = config.nativeBridge.enabled,
+) {
+  const shouldConnect = config.nativeBridge.enabled && active;
   const [status, setStatus] = useState<NativeBridgeStatus>(
-    config.nativeBridge.enabled ? "connecting" : "disabled",
+    shouldConnect ? "connecting" : "disabled",
   );
   const [frame, setFrame] = useState<NativeBridgeFrame | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!config.nativeBridge.enabled) {
+    if (!shouldConnect) {
+      // Closing the socket makes the bridge release the infrared session, which
+      // turns the emitter off when the room is lit.
       setStatus("disabled");
       setFrame(null);
       setError(null);
@@ -88,7 +94,7 @@ export function useNativeBridgeFrames(config: KioskConfig) {
       closed = true;
       socket.close();
     };
-  }, [config.nativeBridge.enabled, config.nativeBridge.url]);
+  }, [shouldConnect, config.nativeBridge.url]);
 
   return { status, frame, error };
 }

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key><string>com.surfacekiosk.remindbridge</string>
+  <key>CFBundleName</key><string>SurfaceKioskReminders</string>
+  <key>CFBundleVersion</key><string>1.0</string>
+  <key>NSRemindersUsageDescription</key><string>Surface Home Kiosk reads and updates the family grocery list.</string>
+  <key>NSRemindersFullAccessUsageDescription</key><string>Surface Home Kiosk reads and updates the family grocery list.</string>
+</dict>
+</plist>

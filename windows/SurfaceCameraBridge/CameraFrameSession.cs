@@ -58,6 +58,32 @@ internal sealed class CameraFrameSession : IDisposable
         }
     }
 
+    // Non-blocking snapshot of the most recent frame, for continuous streaming
+    // where the session stays open instead of being reopened per frame.
+    public SoftwareBitmap? TryGetLatestCopy()
+    {
+        lock (_gate)
+        {
+            return _latestBitmap is null ? null : SoftwareBitmap.Copy(_latestBitmap);
+        }
+    }
+
+    // Wait until at least one frame has been delivered (or the timeout elapses).
+    public async Task<bool> WaitForFirstFrameAsync(int timeoutMs)
+    {
+        if (_latestBitmap is not null) return true;
+        using var timeout = new CancellationTokenSource(timeoutMs);
+        try
+        {
+            await _frameSignal.WaitAsync(timeout.Token);
+            return true;
+        }
+        catch (OperationCanceledException)
+        {
+            return _latestBitmap is not null;
+        }
+    }
+
     private void OnFrameArrived(MediaFrameReader sender, MediaFrameArrivedEventArgs args)
     {
         using var frame = sender.TryAcquireLatestFrame();

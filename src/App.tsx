@@ -11,11 +11,16 @@ import {
   Video,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   type DashboardMode,
   defaultConfig,
   loadKioskConfig,
+  saveKioskConfig,
+  accentForPerson,
+  accentPalette,
+  getProfilePrefs,
+  isAdminPerson,
   type KioskConfig,
   type PersonProfile,
 } from "./config";
@@ -27,7 +32,9 @@ import {
 import { EnrollmentPanel } from "./EnrollmentPanel";
 import { checkFaceModelFiles, loadFaceApi } from "./faceApiRuntime";
 import { HomeCenterDashboard } from "./HomeCenterDashboard";
-import { SetupPanel } from "./SetupPanel";
+import { IdleClock } from "./IdleClock";
+import { SettingsView } from "./SettingsView";
+import { UserSettingsView } from "./UserSettingsView";
 import {
   loadEnrollments,
   mergePeople,
@@ -49,33 +56,17 @@ import {
 import { useHomeAssistantStates } from "./useHomeAssistantStates";
 import { useMotionPresence } from "./useMotionPresence";
 import { useNativeBridgeFrames } from "./useNativeBridgeFrames";
-
-const timeFormatter = new Intl.DateTimeFormat([], {
-  hour: "numeric",
-  minute: "2-digit",
-});
-
-const dateFormatter = new Intl.DateTimeFormat([], {
-  weekday: "long",
-  month: "long",
-  day: "numeric",
-});
-
-function speak(text: string) {
-  if (!("speechSynthesis" in window)) return;
-  window.speechSynthesis.cancel();
-  const utterance = new SpeechSynthesisUtterance(text);
-  utterance.rate = 0.96;
-  utterance.pitch = 1.02;
-  window.speechSynthesis.speak(utterance);
-}
+import { useAmbientDarkness } from "./useAmbientDarkness";
+import { useRemoteFaceRecognition } from "./useRemoteFaceRecognition";
+import { ControlsWarmup } from "./ControlsWarmup";
+import { useTodayAgenda } from "./useCalendar";
+import { CalendarOverlay } from "./CalendarOverlay";
+import { WeatherGlance } from "./WeatherGlance";
+import { StartupIndicator, type StartupTask } from "./StartupIndicator";
+import { Slideshow, type MediaSlide } from "./Slideshow";
 
 function isImagePath(pathname: string) {
   return /\.(avif|gif|jpe?g|png|webp)$/i.test(pathname);
-}
-
-function personGreeting(person: PersonProfile) {
-  return person.greeting ?? `Welcome, ${person.displayName}.`;
 }
 
 function hasHomeAssistantConfig(config: KioskConfig) {
@@ -274,11 +265,21 @@ export default function App() {
   const [configLoaded, setConfigLoaded] = useState(false);
   const [mode, setMode] = useState<DashboardMode>("idle");
   const [activePersonId, setActivePersonId] = useState<string | null>(null);
-  const [photoIndex, setPhotoIndex] = useState(0);
-  const [clock, setClock] = useState(new Date());
+  // Debug override for previewing a profile's theme/colors without face recognition.
+  // `undefined` = follow live recognition; `null` = force "Home" (no person);
+  // a string = force that person id. Toggled from the identity pill in the top bar.
+  const [debugPersonId, setDebugPersonId] = useState<string | null | undefined>(undefined);
+  const [personMenuOpen, setPersonMenuOpen] = useState(false);
+  const [icloudSlides, setIcloudSlides] = useState<MediaSlide[]>([]);
   const [isKiosk, setIsKiosk] = useState(false);
+  const [statusVisible, setStatusVisible] = useState(false);
+  const [warmupActive, setWarmupActive] = useState(true);
+  const [modelsReady, setModelsReady] = useState(false);
+  const [startupExpired, setStartupExpired] = useState(false);
   const [showEnrollment, setShowEnrollment] = useState(false);
   const [showSetup, setShowSetup] = useState(false);
+  // When set, the per-user settings panel is open for this person id.
+  const [userSettingsPersonId, setUserSettingsPersonId] = useState<string | null>(null);
   const [showTestPanel, setShowTestPanel] = useState(false);
   const [enrolledPeople, setEnrolledPeople] = useState<EnrolledPerson[]>([]);
   const [controlsVisible, setControlsVisible] = useState(false);
@@ -293,11 +294,15 @@ export default function App() {
   >("idle");
   const [modelTestMessage, setModelTestMessage] = useState<string | null>(null);
   const lastInteractionAtRef = useRef(Date.now());
+  // When the user explicitly picks Photos, don't let face recognition yank them
+  // straight back to the dashboard until they interact or this window passes.
+  const stayOnPhotosUntilRef = useRef(0);
   const lastFaceSeenAtRef = useRef<number | null>(null);
   const lastGreetedRef = useRef<Record<string, number>>({});
   const lastOccupancyRef = useRef(false);
   const openedFirstRunRef = useRef(false);
   const controlsTimerRef = useRef<number | null>(null);
+  const statusTimerRef = useRef<number | null>(null);
   const dismissedCameraAlertRef = useRef<string | null>(null);
   const displayPowerOffRef = useRef(false);
 
@@ -314,29 +319,161 @@ export default function App() {
     effectiveConfig.camera.width,
     effectiveConfig.camera.height,
   );
-  const nativeBridge = useNativeBridgeFrames(effectiveConfig);
+  // Use the infrared camera only when the room is dark; in a lit room the normal
+  // camera is enough and the IR emitter can stay off.
+  const isDark = useAmbientDarkness(
+    videoRef,
+    cameraStatus === "active",
+    effectiveConfig.nativeBridge.enabled,
+  );
+  const nativeBridge = useNativeBridgeFrames(
+    effectiveConfig,
+    effectiveConfig.nativeBridge.enabled && isDark,
+  );
   const motion = useMotionPresence(
     videoRef,
     cameraStatus === "active",
     effectiveConfig.camera.motionSensitivity,
     effectiveConfig.camera.motionHoldMs,
   );
-  const faceRecognition = useFaceRecognition(
+  const bridgeInput = useMemo(
+    () => ({
+      dataUrl: nativeBridge.frame?.dataUrl,
+      sourceKind: nativeBridge.frame?.sourceKind,
+      connected: nativeBridge.status === "connected",
+      at: nativeBridge.frame?.at,
+    }),
+    [
+      nativeBridge.frame?.dataUrl,
+      nativeBridge.frame?.sourceKind,
+      nativeBridge.frame?.at,
+      nativeBridge.status,
+    ],
+  );
+  // When a remote recognition service is configured (e.g. a Mac mini), run there
+  // and keep tfjs off the Surface GPU; otherwise recognize locally.
+  const remoteRecognitionEnabled = Boolean(
+    effectiveConfig.faceRecognition.enabled && effectiveConfig.faceRecognition.remoteUrl,
+  );
+  const localFace = useFaceRecognition(
     videoRef,
     effectiveConfig,
     cameraStatus === "active",
-    nativeBridge.frame?.dataUrl,
+    bridgeInput,
+    !remoteRecognitionEnabled,
   );
+  const remoteFace = useRemoteFaceRecognition(
+    videoRef,
+    effectiveConfig,
+    cameraStatus === "active",
+    bridgeInput,
+    remoteRecognitionEnabled,
+  );
+  const faceRecognition = remoteRecognitionEnabled ? remoteFace : localFace;
 
-  const photos = useMemo(
-    () => effectiveConfig.slideshow.photos.filter(isImagePath),
-    [effectiveConfig.slideshow.photos],
-  );
+  const slides = useMemo<MediaSlide[]>(() => {
+    const local: MediaSlide[] = effectiveConfig.slideshow.photos
+      .filter(isImagePath)
+      .map((path) => ({ type: "image", url: resolveKioskAssetUrl(path) }));
+    // iCloud album media first; fall back to bundled photos when the album is
+    // empty/unconfigured.
+    return icloudSlides.length ? [...icloudSlides, ...local] : local;
+  }, [effectiveConfig.slideshow.photos, icloudSlides]);
+
+  // Pull media from a configured iCloud shared album (signed URLs expire, so
+  // refresh hourly). Done in the main process to avoid CORS.
+  const icloudAlbumUrl = effectiveConfig.slideshow.icloudSharedAlbumUrl;
+  useEffect(() => {
+    const url = icloudAlbumUrl?.trim();
+    if (!url || !window.surfaceKiosk?.getIcloudAlbumPhotos) {
+      setIcloudSlides([]);
+      return;
+    }
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const items = await window.surfaceKiosk!.getIcloudAlbumPhotos(url);
+        if (!cancelled && Array.isArray(items) && items.length) {
+          setIcloudSlides(items as MediaSlide[]);
+        }
+      } catch {
+        // keep whatever we had
+      }
+    };
+    void load();
+    const id = window.setInterval(load, 60 * 60 * 1000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [icloudAlbumUrl]);
+  // The debug override (when set) wins over live recognition so the dashboard,
+  // greeting and per-profile theme all follow the previewed person.
+  const effectivePersonId = debugPersonId !== undefined ? debugPersonId : activePersonId;
   const activePerson = useMemo(
     () =>
-      effectiveConfig.people.find((person) => person.id === activePersonId) ?? null,
-    [activePersonId, effectiveConfig.people],
+      effectiveConfig.people.find((person) => person.id === effectivePersonId) ?? null,
+    [effectivePersonId, effectiveConfig.people],
   );
+  // Per-user accent theme, keyed off the recognized person's first name. Unknown
+  // people fall through to the default (Quinn) palette.
+  const themeKey = useMemo(() => {
+    const name = (activePerson?.displayName ?? activePerson?.id ?? "").trim().toLowerCase();
+    if (name.startsWith("mark")) return "mark";
+    if (name.startsWith("rachel")) return "rachel";
+    if (name.startsWith("nora")) return "nora";
+    return undefined;
+  }, [activePerson]);
+
+  // Preferences for whoever is currently shown (live recognition or debug override).
+  const activePrefs = useMemo(
+    () => getProfilePrefs(effectiveConfig, activePerson?.id),
+    [effectiveConfig, activePerson],
+  );
+
+  // Drive the accent (and background tint) from the person's stored hex so every
+  // profile is themed automatically — no per-name CSS needed. Inline vars win over
+  // the legacy data-theme blocks.
+  const themeStyle = useMemo<CSSProperties | undefined>(() => {
+    if (!activePerson) return undefined;
+    const palette = accentPalette(accentForPerson(effectiveConfig, activePerson));
+    const vars: Record<string, string> = {
+      "--amber": palette.accent,
+      "--amber-hi": palette.accentHi,
+      "--amber-rgb": palette.accentRgb,
+    };
+    if (activePrefs.theme?.fontDisplay) {
+      vars["--font-display"] = activePrefs.theme.fontDisplay;
+    }
+    return vars as CSSProperties;
+  }, [activePerson, activePrefs, effectiveConfig]);
+
+  // Boot warm-up progress shown to the user so the kiosk doesn't feel broken
+  // while models/camera/service spin up on first load.
+  const startupTasks = useMemo<StartupTask[]>(() => {
+    const tasks: StartupTask[] = [];
+    if (effectiveConfig.camera.enabled) {
+      tasks.push({ label: "Camera", done: cameraStatus === "active" });
+    }
+    if (effectiveConfig.faceRecognition.enabled) {
+      tasks.push({ label: "Face models", done: modelsReady });
+      if (effectiveConfig.faceRecognition.remoteUrl) {
+        tasks.push({ label: "Recognition service", done: faceRecognition.status === "ready" });
+      }
+    }
+    return tasks;
+  }, [
+    effectiveConfig.camera.enabled,
+    effectiveConfig.faceRecognition.enabled,
+    effectiveConfig.faceRecognition.remoteUrl,
+    cameraStatus,
+    modelsReady,
+    faceRecognition.status,
+  ]);
+  const showStartup =
+    mode === "idle" &&
+    !startupExpired &&
+    (warmupActive || (startupTasks.length > 0 && !startupTasks.every((task) => task.done)));
   const homeAssistantConfigured = useMemo(
     () => hasHomeAssistantConfig(effectiveConfig),
     [effectiveConfig],
@@ -344,7 +481,12 @@ export default function App() {
   const homeAssistant = useHomeAssistantStates(
     effectiveConfig,
     homeAssistantConfigured,
-    5000,
+    8000,
+  );
+  const calendarEvents = useTodayAgenda(
+    effectiveConfig,
+    homeAssistant.states,
+    homeAssistantConfigured,
   );
   const homeAssistantSetupNeeded = configLoaded && !homeAssistantConfigured;
   const cameraSetupNeeded =
@@ -403,6 +545,38 @@ export default function App() {
     }
   }, []);
 
+  // Touching the lock-screen calendar should keep the screen awake and reset the
+  // idle timers, but NOT open the dashboard (the overlay stops the tap from
+  // reaching the global handler that would otherwise enter the dashboard).
+  const keepAwake = useCallback(() => {
+    lastInteractionAtRef.current = Date.now();
+    wakeScreen();
+  }, [wakeScreen]);
+
+  // Persist a config change (e.g. calendar colours/visibility) optimistically:
+  // update in memory immediately, then write it through to disk.
+  const persistConfig = useCallback((next: KioskConfig) => {
+    setConfig(next);
+    void saveKioskConfig(next).then((saved) => setConfig(saved)).catch(() => {});
+  }, []);
+
+  // The person whose per-user settings panel is open (if any).
+  const userSettingsPerson = useMemo(
+    () => effectiveConfig.people.find((p) => p.id === userSettingsPersonId) ?? null,
+    [effectiveConfig.people, userSettingsPersonId],
+  );
+
+  // Settings access: admins (Quinn) get the full system settings; everyone else
+  // only edits their own profile. With no one recognized, the device owner opens
+  // system settings.
+  const openSettings = useCallback(() => {
+    if (activePerson && !isAdminPerson(activePerson)) {
+      setUserSettingsPersonId(activePerson.id);
+    } else {
+      setShowSetup(true);
+    }
+  }, [activePerson]);
+
   const revealControls = useCallback(() => {
     wakeScreen();
     setControlsVisible(true);
@@ -414,6 +588,23 @@ export default function App() {
       controlsTimerRef.current = null;
     }, 7000);
   }, [wakeScreen]);
+
+  const toggleStatus = useCallback(() => {
+    setStatusVisible((visible) => {
+      const next = !visible;
+      if (statusTimerRef.current) {
+        window.clearTimeout(statusTimerRef.current);
+        statusTimerRef.current = null;
+      }
+      if (next) {
+        statusTimerRef.current = window.setTimeout(() => {
+          setStatusVisible(false);
+          statusTimerRef.current = null;
+        }, 6000);
+      }
+      return next;
+    });
+  }, []);
 
   const enterDashboard = useCallback(
     (reason: string, person?: PersonProfile | null) => {
@@ -454,6 +645,7 @@ export default function App() {
 
   const recordInteraction = useCallback(() => {
     lastInteractionAtRef.current = Date.now();
+    stayOnPhotosUntilRef.current = 0;
     wakeScreen();
     if (mode === "idle" && effectiveConfig.behavior.openDashboardOnTap) {
       enterDashboard("touch", activePerson);
@@ -492,18 +684,36 @@ export default function App() {
     setShowSetup(true);
   }, [homeAssistantSetupNeeded]);
 
+  // Pre-render the control popups off-screen for a few seconds so React/V8/CSS
+  // warm up, then unmount so there's no ongoing paint cost. Makes the first real
+  // menu open fast instead of paying ~150ms of first-time work.
   useEffect(() => {
-    const interval = window.setInterval(() => setClock(new Date()), 1000);
-    return () => window.clearInterval(interval);
+    const id = window.setTimeout(() => setWarmupActive(false), 3500);
+    return () => window.clearTimeout(id);
   }, []);
 
+  // Never let the startup overlay stick around past 30s, even if a task stalls.
   useEffect(() => {
-    if (photos.length <= 1) return;
-    const interval = window.setInterval(() => {
-      setPhotoIndex((index) => (index + 1) % photos.length);
-    }, effectiveConfig.slideshow.intervalMs);
-    return () => window.clearInterval(interval);
-  }, [effectiveConfig.slideshow.intervalMs, photos.length]);
+    const id = window.setTimeout(() => setStartupExpired(true), 30000);
+    return () => window.clearTimeout(id);
+  }, []);
+
+  // Pre-warm the face-recognition models a few seconds after boot (deferred so it
+  // doesn't compete with the first paint) so opening face registration is instant.
+  // Resolves the "models" startup task either way so the overlay never hangs.
+  useEffect(() => {
+    if (!effectiveConfig.faceRecognition.enabled) {
+      setModelsReady(true);
+      return;
+    }
+    const id = window.setTimeout(() => {
+      void loadFaceApi(effectiveConfig.faceRecognition.modelUrl)
+        .then(() => setModelsReady(true))
+        .catch(() => setModelsReady(true));
+    }, 1500);
+    return () => window.clearTimeout(id);
+  }, [effectiveConfig.faceRecognition.enabled, effectiveConfig.faceRecognition.modelUrl]);
+
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -597,11 +807,11 @@ export default function App() {
   }, [effectiveConfig.deviceName, motion.occupied, motion.score, sendEvent]);
 
   useEffect(() => {
-    if (faceRecognition.face) {
+    if (faceRecognition.lastDetectionAt) {
       lastFaceSeenAtRef.current = Date.now();
       wakeScreen();
     }
-  }, [faceRecognition.face, wakeScreen]);
+  }, [faceRecognition.lastDetectionAt, wakeScreen]);
 
   useEffect(() => {
     const person = faceRecognition.person;
@@ -612,7 +822,6 @@ export default function App() {
     const lastGreetedAt = lastGreetedRef.current[person.id] ?? 0;
     if (Date.now() - lastGreetedAt > effectiveConfig.faceRecognition.greetCooldownMs) {
       lastGreetedRef.current[person.id] = Date.now();
-      speak(personGreeting(person));
       void sendEvent("person_recognized", {
         device: effectiveConfig.deviceName,
         person_id: person.id,
@@ -631,9 +840,10 @@ export default function App() {
     setActivePersonId(person.id);
 
     if (
-      effectiveConfig.faceRecognition.openDashboardOnRecognition ||
-      (faceRecognition.face?.close &&
-        effectiveConfig.behavior.openDashboardOnCloseFace)
+      Date.now() >= stayOnPhotosUntilRef.current &&
+      (effectiveConfig.faceRecognition.openDashboardOnRecognition ||
+        (faceRecognition.face?.close &&
+          effectiveConfig.behavior.openDashboardOnCloseFace))
     ) {
       enterDashboard(
         faceRecognition.face?.close ? "recognized-close-face" : "recognized-face",
@@ -651,6 +861,7 @@ export default function App() {
 
   useEffect(() => {
     if (
+      Date.now() >= stayOnPhotosUntilRef.current &&
       mode === "idle" &&
       faceRecognition.face?.close &&
       effectiveConfig.behavior.openDashboardOnCloseFace
@@ -746,14 +957,12 @@ export default function App() {
     [],
   );
 
-  const currentPhoto = photos[photoIndex % Math.max(1, photos.length)];
-  const showFallbackPhoto = !currentPhoto;
+  const showFallbackPhoto = slides.length === 0;
   const testPerson = activePerson ?? effectiveConfig.people[0] ?? null;
 
   function runRecognitionTest() {
     if (!testPerson) return;
     setActivePersonId(testPerson.id);
-    speak(personGreeting(testPerson));
     enterDashboard("recognition-test", testPerson);
   }
 
@@ -787,28 +996,47 @@ export default function App() {
   return (
     <main
       className={`app app-${mode}`}
+      data-theme={themeKey}
+      style={themeStyle}
       onPointerDown={recordInteraction}
       onKeyDown={recordInteraction}
       tabIndex={0}
     >
       <video ref={videoRef} className="camera-probe" muted playsInline />
+      {warmupActive ? <ControlsWarmup /> : null}
 
       <section className="idle-stage" aria-hidden={mode !== "idle"}>
         {showFallbackPhoto ? (
           <div className="photo-fallback" />
         ) : (
-          <img
-            className="idle-photo"
-            src={resolveKioskAssetUrl(currentPhoto)}
-            alt=""
-            draggable={false}
+          <Slideshow
+            slides={slides}
+            intervalMs={effectiveConfig.slideshow.intervalMs}
+            transition={effectiveConfig.slideshow.transition ?? "crossfade"}
+            shuffle={effectiveConfig.slideshow.shuffle ?? true}
+            videoMs={10000}
           />
         )}
         <div className="idle-shade" />
-        <div className="idle-clock">
-          <span>{timeFormatter.format(clock)}</span>
-          <small>{dateFormatter.format(clock)}</small>
-        </div>
+        {showStartup ? <StartupIndicator tasks={startupTasks} /> : null}
+        <IdleClock />
+        {effectiveConfig.weather?.enabled ? (
+          <div className="idle-weather">
+            <WeatherGlance
+              state={
+                homeAssistant.states.find(
+                  (s) => s.entity_id === effectiveConfig.weather?.entityId,
+                ) ??
+                homeAssistant.states.find((s) => s.entity_id.startsWith("weather.")) ??
+                null
+              }
+              variant="lock"
+            />
+          </div>
+        ) : null}
+        {effectiveConfig.calendar?.enabled ? (
+          <CalendarOverlay events={calendarEvents} onInteract={keepAwake} />
+        ) : null}
         <div className="idle-status">
           <span className={motion.occupied ? "status-dot live" : "status-dot"} />
           <span>{motion.occupied ? "Room active" : "Room quiet"}</span>
@@ -819,18 +1047,7 @@ export default function App() {
       </section>
 
       <section className="dashboard-stage" aria-hidden={mode !== "dashboard"}>
-        {homeAssistantConfigured ? (
-          <HomeCenterDashboard
-            config={effectiveConfig}
-            states={homeAssistant.states}
-            status={homeAssistant.status}
-            error={homeAssistant.error}
-            activePerson={activePerson}
-            onCallService={callService}
-            onOpenCamera={openCameraAlert}
-            onRefresh={() => void homeAssistant.refresh()}
-          />
-        ) : (
+        {!homeAssistantConfigured ? (
           <div className="dashboard-empty">
             <span className="eyebrow">Home Assistant</span>
             <h2>Connect your dashboard</h2>
@@ -839,12 +1056,33 @@ export default function App() {
               <span>Setup</span>
             </button>
           </div>
-        )}
+        ) : mode === "dashboard" ? (
+          <HomeCenterDashboard
+            config={effectiveConfig}
+            states={homeAssistant.states}
+            status={homeAssistant.status}
+            error={homeAssistant.error}
+            activePerson={activePerson}
+            hiddenSections={activePrefs.hiddenSections}
+            calendarEntityIds={activePrefs.calendarEntityIds}
+            onCallService={callService}
+            onOpenCamera={openCameraAlert}
+            onRefresh={homeAssistant.refresh}
+            onSaveConfig={persistConfig}
+          />
+        ) : null}
       </section>
 
       <button
         type="button"
         className="corner-hotzone top-right"
+        aria-label="Show controls"
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={revealControls}
+      />
+      <button
+        type="button"
+        className="corner-hotzone top-left"
         aria-label="Show controls"
         onPointerDown={(event) => event.stopPropagation()}
         onClick={revealControls}
@@ -865,11 +1103,72 @@ export default function App() {
       />
 
       <div className="center-identity" onPointerDown={(event) => event.stopPropagation()}>
-        <div className="identity-pill">
+        <button
+          type="button"
+          className={`identity-pill ${debugPersonId !== undefined ? "debugging" : ""}`}
+          aria-label="Switch active profile"
+          aria-expanded={personMenuOpen}
+          onClick={() => setPersonMenuOpen((open) => !open)}
+        >
           <Home size={18} />
           <span>{activePerson?.displayName ?? "Home"}</span>
-        </div>
-        <div className="status-pill">
+          {debugPersonId !== undefined ? (
+            <span className="identity-debug-dot" title="Debug override active" />
+          ) : null}
+        </button>
+        {personMenuOpen ? (
+          <div className="person-menu" role="menu">
+            <div className="person-menu-label">View as (debug)</div>
+            <button
+              type="button"
+              role="menuitem"
+              className={`person-menu-item ${debugPersonId === undefined ? "active" : ""}`}
+              onClick={() => {
+                setDebugPersonId(undefined);
+                setPersonMenuOpen(false);
+              }}
+            >
+              Live (face recognition)
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className={`person-menu-item ${debugPersonId === null ? "active" : ""}`}
+              onClick={() => {
+                setDebugPersonId(null);
+                setPersonMenuOpen(false);
+              }}
+            >
+              Home (no person)
+            </button>
+            {effectiveConfig.people.map((person) => (
+              <button
+                key={person.id}
+                type="button"
+                role="menuitem"
+                className={`person-menu-item ${debugPersonId === person.id ? "active" : ""}`}
+                onClick={() => {
+                  setDebugPersonId(person.id);
+                  setPersonMenuOpen(false);
+                }}
+              >
+                {person.displayName}
+              </button>
+            ))}
+            <button
+              type="button"
+              role="menuitem"
+              className="person-menu-item subtle"
+              onClick={() => {
+                toggleStatus();
+                setPersonMenuOpen(false);
+              }}
+            >
+              {statusVisible ? "Hide status" : "Show status"}
+            </button>
+          </div>
+        ) : null}
+        <div className={`status-pill ${statusVisible ? "visible" : ""}`}>
           <span title={`Camera: ${cameraStatus}`}>
             <Video size={16} />
             {cameraStatus}
@@ -877,6 +1176,16 @@ export default function App() {
           <span title={`Face recognition: ${faceRecognition.status}`}>
             <ScanFace size={16} />
             {faceStatusText}
+          </span>
+          <span title={`Recognition input: ${faceRecognition.activeSource}`}>
+            <ScanFace size={16} />
+            {faceRecognition.activeSource === "native-infrared"
+              ? "IR"
+              : faceRecognition.activeSource === "native-color"
+                ? "bridge"
+                : faceRecognition.activeSource === "browser-color"
+                  ? "RGB"
+                  : "—"}
           </span>
           <span title={nativeBridge.error ?? `Native bridge: ${nativeBridge.status}`}>
             <Radio size={16} />
@@ -908,6 +1217,7 @@ export default function App() {
             aria-label="Photos"
             onClick={(event) => {
               event.stopPropagation();
+              stayOnPhotosUntilRef.current = Date.now() + 90000;
               returnToPhotos("button");
             }}
           >
@@ -948,11 +1258,11 @@ export default function App() {
           </button>
           <button
             type="button"
-            title="Setup"
-            aria-label="Setup"
+            title="Settings"
+            aria-label="Settings"
             onClick={(event) => {
               event.stopPropagation();
-              setShowSetup(true);
+              openSettings();
             }}
           >
             <Settings size={18} />
@@ -982,6 +1292,47 @@ export default function App() {
           >
             <RefreshCw size={18} />
           </button>
+        </div>
+        <div className="dock-group profile-dock">
+          <span className="profile-dock-label">View as</span>
+          <button
+            type="button"
+            title="Live (face recognition)"
+            className={`profile-chip ${debugPersonId === undefined ? "active" : ""}`}
+            onClick={(event) => {
+              event.stopPropagation();
+              setDebugPersonId(undefined);
+            }}
+          >
+            <ScanFace size={14} />
+            <span>Live</span>
+          </button>
+          <button
+            type="button"
+            title="Home (no person)"
+            className={`profile-chip ${debugPersonId === null ? "active" : ""}`}
+            onClick={(event) => {
+              event.stopPropagation();
+              setDebugPersonId(null);
+            }}
+          >
+            <Home size={14} />
+            <span>Home</span>
+          </button>
+          {effectiveConfig.people.map((person) => (
+            <button
+              key={person.id}
+              type="button"
+              title={`View as ${person.displayName}`}
+              className={`profile-chip ${debugPersonId === person.id ? "active" : ""}`}
+              onClick={(event) => {
+                event.stopPropagation();
+                setDebugPersonId(person.id);
+              }}
+            >
+              <span>{person.displayName.split(" ")[0] || person.displayName}</span>
+            </button>
+          ))}
         </div>
       </div>
 
@@ -1064,13 +1415,36 @@ export default function App() {
       ) : null}
 
       {showSetup ? (
-        <SetupPanel
-          config={config}
-          onClose={() => setShowSetup(false)}
-          onSaved={(saved) => {
-            setConfig(saved);
-          }}
-        />
+        <div className="settings-stage" onPointerDown={(event) => event.stopPropagation()}>
+          <SettingsView
+            config={config}
+            states={homeAssistant.states}
+            people={effectiveConfig.people}
+            onEditProfile={(personId) => {
+              setShowSetup(false);
+              setUserSettingsPersonId(personId);
+            }}
+            onClose={() => setShowSetup(false)}
+            onSaved={(saved) => {
+              setConfig(saved);
+            }}
+          />
+        </div>
+      ) : null}
+
+      {userSettingsPerson ? (
+        <div className="settings-stage" onPointerDown={(event) => event.stopPropagation()}>
+          <UserSettingsView
+            config={config}
+            states={homeAssistant.states}
+            person={userSettingsPerson}
+            editingAsAdmin={
+              isAdminPerson(activePerson) && userSettingsPerson.id !== activePerson?.id
+            }
+            onClose={() => setUserSettingsPersonId(null)}
+            onSaved={(saved) => setConfig(saved)}
+          />
+        </div>
       ) : null}
 
       {showEnrollment ? (
@@ -1079,6 +1453,7 @@ export default function App() {
           stream={cameraStream}
           video={videoRef.current}
           bridgeFrameDataUrl={nativeBridge.frame?.dataUrl}
+          bridgeSourceKind={nativeBridge.frame?.sourceKind}
           onClose={() => setShowEnrollment(false)}
           onSaved={(people) => setEnrolledPeople(people)}
         />
@@ -1108,6 +1483,8 @@ export default function App() {
             <strong>{cameraStatus}</strong>
             <span>Bridge</span>
             <strong>{nativeBridge.status}</strong>
+            <span>Source</span>
+            <strong>{faceRecognition.activeSource}</strong>
             <span>Face</span>
             <strong>{faceRecognition.status}</strong>
             <span>Models</span>

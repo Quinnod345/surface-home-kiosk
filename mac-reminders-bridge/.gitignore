@@ -1,0 +1,5 @@
+bridge-config.json
+remind
+*.o
+.build/
+*.log

@@ -81,32 +81,58 @@ internal static class BridgeServer
         MediaFrameSourceKind kind,
         int intervalMs)
     {
-        while (socket.State == WebSocketState.Open)
+        // Open the camera once and stream the latest frame on each tick. Opening
+        // a fresh MediaCapture per frame (the old behaviour) capped the rate at
+        // roughly 1fps; a persistent session streams at the requested interval.
+        CameraFrameSession? session = null;
+        try
         {
-            try
-            {
-                var png = await CameraCapture.CapturePngAsync(kind, timeoutMs: 4000);
-                var payload = JsonSerializer.Serialize(new
-                {
-                    type = "frame",
-                    sourceKind = kind.ToString(),
-                    mimeType = "image/png",
-                    imageBase64 = Convert.ToBase64String(png),
-                    at = DateTimeOffset.UtcNow.ToString("O"),
-                });
-                await SendTextAsync(socket, payload);
-            }
-            catch (Exception error)
-            {
-                await SendTextAsync(socket, JsonSerializer.Serialize(new
-                {
-                    type = "error",
-                    error = error.Message,
-                    at = DateTimeOffset.UtcNow.ToString("O"),
-                }));
-            }
+            session = await CameraFrameSession.OpenAsync(kind);
+            await session.WaitForFirstFrameAsync(4000);
 
-            await Task.Delay(intervalMs);
+            while (socket.State == WebSocketState.Open)
+            {
+                try
+                {
+                    using var bitmap = session.TryGetLatestCopy();
+                    if (bitmap is not null)
+                    {
+                        var png = await CameraCapture.EncodePngAsync(bitmap);
+                        await SendTextAsync(socket, JsonSerializer.Serialize(new
+                        {
+                            type = "frame",
+                            sourceKind = kind.ToString(),
+                            mimeType = "image/png",
+                            imageBase64 = Convert.ToBase64String(png),
+                            at = DateTimeOffset.UtcNow.ToString("O"),
+                        }));
+                    }
+                }
+                catch (Exception error)
+                {
+                    await SendTextAsync(socket, JsonSerializer.Serialize(new
+                    {
+                        type = "error",
+                        error = error.Message,
+                        at = DateTimeOffset.UtcNow.ToString("O"),
+                    }));
+                }
+
+                await Task.Delay(intervalMs);
+            }
+        }
+        catch (Exception error)
+        {
+            await SendTextAsync(socket, JsonSerializer.Serialize(new
+            {
+                type = "error",
+                error = error.Message,
+                at = DateTimeOffset.UtcNow.ToString("O"),
+            }));
+        }
+        finally
+        {
+            session?.Dispose();
         }
     }
 
