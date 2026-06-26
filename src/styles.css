@@ -45,9 +45,9 @@ select {
   /* Base canvas is tinted with the active profile's accent (--amber-rgb), so the
      whole background shifts toward e.g. Mark's blue, not just the accent chrome. */
   background:
-    radial-gradient(135% 110% at 50% -15%, rgba(var(--amber-rgb), 0.16), transparent 60%),
-    radial-gradient(120% 90% at 100% 110%, rgba(var(--amber-rgb), 0.08), transparent 60%),
-    linear-gradient(135deg, rgba(24, 29, 35, 0.96), rgba(8, 9, 12, 0.98)),
+    radial-gradient(135% 110% at 50% -15%, rgba(var(--amber-rgb), 0.24), transparent 60%),
+    radial-gradient(120% 90% at 100% 110%, rgba(var(--amber-rgb), 0.13), transparent 60%),
+    linear-gradient(135deg, rgba(22, 26, 32, 0.96), rgba(8, 9, 12, 0.98)),
     #0f1115;
   outline: none;
   transition: background 600ms ease;
@@ -108,11 +108,12 @@ select {
 }
 
 .photo-fallback {
+  /* Follow the active profile's accent (amber when no one is signed in). */
   background:
     linear-gradient(115deg, rgba(255, 255, 255, 0.08) 0 1px, transparent 1px 18px),
-    linear-gradient(142deg, rgba(222, 185, 101, 0.18), transparent 42%),
-    linear-gradient(24deg, transparent 48%, rgba(94, 177, 159, 0.2)),
-    #171515;
+    linear-gradient(142deg, rgba(var(--amber-rgb), 0.22), transparent 42%),
+    linear-gradient(24deg, transparent 48%, rgba(var(--amber-rgb), 0.14)),
+    #131217;
 }
 
 .idle-shade {
@@ -190,8 +191,8 @@ select {
   color: rgba(255, 255, 255, 0.9);
   animation: fade-in 220ms ease both;
   background:
-    radial-gradient(circle at 15% 0%, rgba(215, 72, 76, 0.18), transparent 34%),
-    radial-gradient(circle at 100% 20%, rgba(66, 159, 143, 0.18), transparent 30%),
+    radial-gradient(circle at 15% 0%, rgba(var(--amber-rgb), 0.30), transparent 36%),
+    radial-gradient(circle at 100% 20%, rgba(var(--amber-rgb), 0.16), transparent 32%),
     linear-gradient(135deg, #14171c, #0b0d11 62%, #131217);
 }
 
@@ -1821,12 +1822,13 @@ select {
   padding: 28px 34px 14px;
   gap: 20px;
   color: var(--ink);
-  /* Neutral dark base so the accent radials (--amber-rgb) carry the profile tint
-     instead of a baked-in warm brown that fights blue/purple/pink themes. */
+  /* Neutral dark base so the accent radials (--amber-rgb) clearly carry the active
+     profile's colour (amber when no one is signed in, otherwise the selected
+     user's accent). Kept strong enough to actually read on the wall. */
   background:
-    radial-gradient(115% 85% at 102% -12%, rgba(var(--amber-rgb), 0.18), transparent 60%),
-    radial-gradient(95% 80% at -8% 112%, rgba(var(--amber-rgb), 0.10), transparent 60%),
-    linear-gradient(162deg, #16161b, #0d0d11 72%);
+    radial-gradient(115% 85% at 102% -12%, rgba(var(--amber-rgb), 0.32), transparent 62%),
+    radial-gradient(95% 80% at -8% 112%, rgba(var(--amber-rgb), 0.18), transparent 60%),
+    linear-gradient(162deg, #15151a, #0c0c10 72%);
   transition: background 600ms ease;
 }
 
@@ -2146,10 +2148,12 @@ select {
   color: var(--ink-2);
 }
 .home-center {
+  /* Carry the active profile's accent (amber when nobody is signed in, otherwise
+     the selected user's colour). Neutral dark base — no baked-in warm brown. */
   background:
-    radial-gradient(120% 92% at 100% -12%, rgba(240, 182, 96, 0.14), transparent 52%),
-    radial-gradient(95% 85% at -7% 114%, rgba(176, 120, 72, 0.07), transparent 56%),
-    linear-gradient(160deg, #221c14, #130f0a 72%);
+    radial-gradient(120% 92% at 100% -12%, rgba(var(--amber-rgb), 0.32), transparent 56%),
+    radial-gradient(95% 85% at -7% 114%, rgba(var(--amber-rgb), 0.18), transparent 58%),
+    linear-gradient(160deg, #15151a, #0c0c10 72%);
 }
 
 /* The hero greets on the dashboard, so hide the centered identity pill there. */
